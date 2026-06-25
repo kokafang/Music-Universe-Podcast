@@ -1,0 +1,8 @@
+.env
+.env.*
+!.env.example
+.DS_Store
+
+# Generated/downloaded media and runtime output
+assets/runtime/
+assets/youtube-source/

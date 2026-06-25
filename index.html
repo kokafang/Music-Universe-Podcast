@@ -1,0 +1,4045 @@
+﻿<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Music Universe Map</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        background: #000;
+        --ink: #f4f1e8;
+        --muted: rgba(205, 221, 255, 0.62);
+        --dim: rgba(244, 241, 232, 0.36);
+        --paper: #03040a;
+        --panel: rgba(5, 8, 20, 0.58);
+        --panel-solid: #080b18;
+        --line: rgba(255, 255, 255, 0.12);
+        --red: #ff6b5f;
+        --gold: #f5db91;
+        --green: #5dd39e;
+        --cyan: #60d5d9;
+        --pink: #f28bb8;
+        --violet: #b7a5ff;
+        --shadow: 0 22px 80px rgba(0, 0, 0, 0.38);
+        --radius: 8px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        height: 100%;
+      }
+
+      body {
+        margin: 0;
+        background: #000;
+        color: var(--ink);
+        font-family:
+          Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        overflow: hidden;
+      }
+
+      button,
+      input {
+        font: inherit;
+      }
+
+      button {
+        min-height: 38px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 7px;
+        background: rgba(255, 255, 255, 0.06);
+        color: rgba(244, 241, 232, 0.78);
+        cursor: pointer;
+        transition:
+          transform 140ms ease,
+          background 140ms ease,
+          border-color 140ms ease,
+          color 140ms ease;
+      }
+
+      button:hover {
+        transform: translateY(-1px);
+        border-color: rgba(245, 219, 145, 0.4);
+        background: rgba(245, 219, 145, 0.12);
+        color: #fffaf0;
+      }
+
+      button:focus-visible,
+      input:focus-visible {
+        outline: 2px solid var(--cyan);
+        outline-offset: 2px;
+      }
+
+      .app {
+        position: relative;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        width: 100vw;
+        height: 100dvh;
+        min-height: 0;
+        overflow: hidden;
+      }
+
+      .app.sidebar-open {
+        grid-template-columns: minmax(0, 1fr) clamp(320px, 30vw, 420px);
+      }
+
+      .map-stage {
+        position: relative;
+        min-width: 0;
+        overflow: hidden;
+      }
+
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        touch-action: none;
+      }
+
+      #mapCanvas {
+        opacity: 0;
+      }
+
+      #sphereScene {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+      }
+
+      .sphere-labels {
+        position: absolute;
+        inset: 0;
+        z-index: 2;
+        pointer-events: none;
+      }
+
+      .sphere-label {
+        position: absolute;
+        padding: 2px 6px;
+        border-radius: 999px;
+        background: rgba(4, 8, 18, 0.32);
+        color: rgba(255, 255, 255, 0.82);
+        font-size: 10px;
+        line-height: 1.25;
+        white-space: nowrap;
+        text-shadow: 0 0 12px rgba(0, 0, 0, 0.7);
+        transform: translate(-50%, -50%);
+        transition: opacity 120ms linear;
+      }
+
+      .sphere-label.focus {
+        background: rgba(245, 219, 145, 0.14);
+        color: #f5db91;
+        font-size: 15px;
+      }
+
+      .sphere-label.lineage {
+        background: rgba(186, 245, 143, 0.12);
+        color: #baf58f;
+      }
+
+      .sphere-label.spatial {
+        background: rgba(168, 188, 255, 0.1);
+        color: #a8bcff;
+      }
+
+      .cinematic-overlay,
+      .speed-lines {
+        position: absolute;
+        inset: 0;
+        z-index: 2;
+        pointer-events: none;
+      }
+
+      .cinematic-overlay {
+        background:
+          radial-gradient(circle at 50% 48%, transparent 0%, transparent 46%, rgba(0, 0, 0, 0.28) 72%, rgba(0, 0, 0, 0.62) 100%),
+          linear-gradient(90deg, rgba(25, 55, 90, 0.08), transparent 20%, transparent 80%, rgba(245, 190, 80, 0.06));
+        mix-blend-mode: multiply;
+      }
+
+      .cinematic-overlay::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        opacity: 0.16;
+        background-image:
+          radial-gradient(circle at 20% 30%, rgba(255,255,255,.55) 0 1px, transparent 1px),
+          radial-gradient(circle at 70% 60%, rgba(255,255,255,.32) 0 1px, transparent 1px);
+        background-size: 17px 19px, 23px 29px;
+        mix-blend-mode: overlay;
+      }
+
+      .speed-lines {
+        inset: -18%;
+        opacity: 0;
+        background:
+          repeating-linear-gradient(
+            92deg,
+            transparent 0,
+            transparent 32px,
+            rgba(255, 255, 255, 0.1) 33px,
+            transparent 36px
+          );
+        filter: blur(1px);
+        transition: opacity 0.16s linear;
+        mix-blend-mode: screen;
+      }
+
+      .topbar {
+        position: absolute;
+        top: 18px;
+        left: 18px;
+        right: 18px;
+        z-index: 4;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        pointer-events: none;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        pointer-events: auto;
+      }
+
+      .mark {
+        width: 38px;
+        height: 38px;
+        border: 1px solid rgba(248, 244, 232, 0.18);
+        border-radius: 50%;
+        background:
+          linear-gradient(90deg, transparent 48%, rgba(248, 244, 232, 0.18) 49%, rgba(248, 244, 232, 0.18) 51%, transparent 52%),
+          linear-gradient(0deg, transparent 48%, rgba(248, 244, 232, 0.18) 49%, rgba(248, 244, 232, 0.18) 51%, transparent 52%),
+          radial-gradient(circle, rgba(242, 193, 78, 0.9) 0 15%, transparent 16%),
+          rgba(248, 244, 232, 0.06);
+        box-shadow: 0 0 28px rgba(242, 193, 78, 0.25);
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: clamp(26px, 3vw, 42px);
+        line-height: 1.04;
+        font-weight: 400;
+        letter-spacing: 0;
+      }
+
+      h2 {
+        font-family: Georgia, "Times New Roman", serif;
+        font-weight: 400;
+        letter-spacing: 0;
+      }
+
+      .brand-sub {
+        color: var(--muted);
+        font-size: 13px;
+        margin-top: 5px;
+      }
+
+      .view-switch {
+        display: none;
+        gap: 6px;
+        padding: 6px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: rgba(5, 8, 20, 0.58);
+        backdrop-filter: blur(18px);
+        pointer-events: auto;
+      }
+
+      .view-switch button {
+        min-height: 32px;
+        padding: 0 12px;
+        color: var(--muted);
+        border: 0;
+        background: transparent;
+      }
+
+      .view-switch button.active {
+        color: #121110;
+        background: var(--gold);
+      }
+
+      .search-layer {
+        position: absolute;
+        left: clamp(18px, 4vw, 56px);
+        bottom: clamp(18px, 5vw, 58px);
+        z-index: 5;
+        width: min(620px, calc(100% - 36px));
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: rgba(5, 8, 20, 0.58);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(22px);
+      }
+
+      .search-row {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+        padding: 12px;
+      }
+
+      .search-row input {
+        width: 100%;
+        height: 46px;
+        min-width: 0;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 7px;
+        background: rgba(255, 255, 255, 0.07);
+        color: #fffaf0;
+        padding: 0 14px;
+      }
+
+      .search-row input::placeholder {
+        color: rgba(244, 241, 232, 0.42);
+      }
+
+      .primary {
+        min-width: 116px;
+        padding: 0 16px;
+        border-color: rgba(245, 219, 145, 0.4);
+        background: var(--gold);
+        color: #11120a;
+        font-weight: 750;
+      }
+
+      .secondary {
+        padding: 0 13px;
+        border-color: rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.06);
+        color: rgba(244, 241, 232, 0.74);
+      }
+
+      .candidate-list {
+        display: none;
+        padding: 0 12px 12px;
+        border-top: 1px solid var(--line);
+      }
+
+      .candidate-list.show {
+        display: grid;
+        gap: 8px;
+      }
+
+      .candidate {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+        align-items: center;
+        padding: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 7px;
+        background: rgba(255, 255, 255, 0.06);
+      }
+
+      .candidate strong {
+        display: block;
+        font-size: 13px;
+        font-weight: 650;
+      }
+
+      .candidate span {
+        display: block;
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .candidate button {
+        padding: 0 12px;
+      }
+
+      .candidate.demo {
+        border-style: dashed;
+      }
+
+      .map-hud {
+        position: absolute;
+        right: 20px;
+        bottom: 24px;
+        z-index: 4;
+        display: none;
+        gap: 8px;
+        width: min(310px, 38vw);
+        pointer-events: none;
+      }
+
+      .hud-block {
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: rgba(5, 8, 20, 0.55);
+        backdrop-filter: blur(18px);
+      }
+
+      .hud-title {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .hud-value {
+        margin-top: 7px;
+        font-size: 18px;
+        font-weight: 760;
+      }
+
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 9px;
+      }
+
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        min-height: 26px;
+        padding: 0 9px;
+        border: 1px solid rgba(248, 244, 232, 0.12);
+        border-radius: 999px;
+        color: var(--ink);
+        background: rgba(248, 244, 232, 0.07);
+        font-size: 11px;
+        white-space: nowrap;
+      }
+
+      .chip.gold {
+        border-color: rgba(242, 193, 78, 0.42);
+        color: var(--gold);
+      }
+
+      .chip.green {
+        border-color: rgba(93, 211, 158, 0.36);
+        color: var(--green);
+      }
+
+      .side {
+        z-index: 6;
+        display: none;
+        flex-direction: column;
+        gap: 12px;
+        min-width: 0;
+        height: 100dvh;
+        overflow-y: auto;
+        padding: 18px 18px 18px 0;
+        scrollbar-color: rgba(248, 244, 232, 0.28) transparent;
+      }
+
+      .app.sidebar-open .side {
+        display: flex;
+      }
+
+      .panel {
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--panel);
+        box-shadow: 0 16px 50px rgba(0, 0, 0, 0.25);
+        backdrop-filter: blur(20px);
+      }
+
+      .panel-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 13px 14px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .panel-head h2 {
+        font-size: 20px;
+        line-height: 1.08;
+        letter-spacing: 0;
+      }
+
+      .panel-kicker {
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.4;
+      }
+
+      .panel-actions {
+        display: flex;
+        flex: 0 0 auto;
+        gap: 8px;
+      }
+
+      .panel-actions button {
+        min-width: 86px;
+      }
+
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        min-height: 24px;
+        padding: 0 8px;
+        border-radius: 999px;
+        color: #121110;
+        background: var(--green);
+        font-size: 12px;
+        font-weight: 750;
+      }
+
+      .now-song {
+        padding: 14px;
+      }
+
+      .empty-note {
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .song-title {
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 24px;
+        font-weight: 400;
+        line-height: 1.08;
+      }
+
+      .song-meta {
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .song-actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 14px;
+      }
+
+      .song-actions button {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .pack {
+        flex: 0 0 auto;
+        min-height: 0;
+      }
+
+      .pack-list {
+        display: grid;
+        gap: 12px;
+        overflow: visible;
+        padding: 12px;
+        scrollbar-color: rgba(248, 244, 232, 0.28) transparent;
+      }
+
+      .listen-card {
+        position: relative;
+        display: grid;
+        grid-template-columns: 42px minmax(0, 1fr);
+        gap: 12px;
+        overflow: hidden;
+        padding: 12px;
+        border: 1px solid rgba(248, 244, 232, 0.14);
+        border-radius: var(--radius);
+        background:
+          linear-gradient(135deg, rgba(96, 213, 217, 0.09), transparent 42%),
+          linear-gradient(180deg, rgba(248, 244, 232, 0.075), rgba(248, 244, 232, 0.035));
+      }
+
+      .listen-card::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+        background: linear-gradient(90deg, transparent, rgba(245, 219, 145, 0.16), transparent);
+        transform: translateX(-100%);
+        pointer-events: none;
+      }
+
+      .listen-card.generating::before,
+      .listen-card.active::before {
+        opacity: 1;
+        animation: signal-sweep 2.6s linear infinite;
+      }
+
+      .listen-card.active {
+        border-color: rgba(242, 193, 78, 0.6);
+        box-shadow: inset 0 0 0 1px rgba(242, 193, 78, 0.12);
+      }
+
+      .round-index {
+        position: relative;
+        display: grid;
+        place-items: center;
+        align-self: stretch;
+        min-height: 132px;
+        border-right: 1px solid rgba(248, 244, 232, 0.12);
+        color: rgba(245, 219, 145, 0.92);
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 20px;
+      }
+
+      .round-index::before,
+      .round-index::after {
+        content: "";
+        position: absolute;
+        left: 50%;
+        width: 1px;
+        height: 34%;
+        background: linear-gradient(180deg, transparent, rgba(245, 219, 145, 0.55), transparent);
+      }
+
+      .round-index::before {
+        top: 0;
+      }
+
+      .round-index::after {
+        bottom: 0;
+      }
+
+      .round-body {
+        display: grid;
+        gap: 10px;
+        min-width: 0;
+      }
+
+      .card-top {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .card-top h3 {
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 18px;
+        font-weight: 400;
+        line-height: 1.1;
+      }
+
+      .card-top p {
+        margin-top: 5px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .round-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .round-meta span {
+        min-height: 22px;
+        padding: 4px 7px;
+        border: 1px solid rgba(248, 244, 232, 0.1);
+        border-radius: 999px;
+        color: var(--dim);
+        background: rgba(248, 244, 232, 0.04);
+        font-size: 11px;
+      }
+
+      .state {
+        flex: 0 0 auto;
+        align-self: start;
+        min-height: 24px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        color: var(--muted);
+        background: rgba(248, 244, 232, 0.08);
+        font-size: 12px;
+        white-space: nowrap;
+      }
+
+      .state.ready {
+        color: #111;
+        background: var(--green);
+      }
+
+      .state.generating {
+        color: #111;
+        background: var(--gold);
+      }
+
+      .state.failed {
+        color: #111;
+        background: var(--red);
+      }
+
+      .wave {
+        display: grid;
+        grid-template-columns: repeat(28, 1fr);
+        gap: 3px;
+        height: 36px;
+        align-items: end;
+        padding: 0 2px;
+      }
+
+      .bar {
+        min-width: 3px;
+        border-radius: 3px 3px 0 0;
+        background: rgba(248, 244, 232, 0.18);
+      }
+
+      .listen-card.ready .bar {
+        background: linear-gradient(180deg, var(--cyan), var(--green));
+      }
+
+      .listen-card.generating .bar {
+        background: linear-gradient(180deg, var(--gold), var(--pink));
+        animation: wave-flow 900ms ease-in-out infinite alternate;
+        animation-delay: calc(var(--i, 0) * 34ms);
+      }
+
+      .listen-card.active .bar {
+        animation: pulse 680ms ease-in-out infinite alternate;
+      }
+
+      .note-stream {
+        position: relative;
+        height: 20px;
+        overflow: hidden;
+        border-top: 1px solid rgba(248, 244, 232, 0.08);
+        border-bottom: 1px solid rgba(248, 244, 232, 0.08);
+      }
+
+      .note-stream span {
+        position: absolute;
+        top: 2px;
+        left: -30px;
+        color: rgba(248, 244, 232, 0.32);
+        font-size: 13px;
+        animation: note-drift 6.8s linear infinite;
+      }
+
+      .note-stream span:nth-child(2) {
+        animation-delay: 1.5s;
+        top: 0;
+      }
+
+      .note-stream span:nth-child(3) {
+        animation-delay: 3.1s;
+        top: 5px;
+      }
+
+      .note-stream span:nth-child(4) {
+        animation-delay: 4.6s;
+        top: 1px;
+      }
+
+      @keyframes pulse {
+        to {
+          opacity: 0.48;
+          transform: scaleY(0.66);
+        }
+      }
+
+      @keyframes wave-flow {
+        to {
+          opacity: 0.58;
+          transform: scaleY(0.45);
+        }
+      }
+
+      @keyframes note-drift {
+        to {
+          transform: translateX(360px);
+        }
+      }
+
+      @keyframes signal-sweep {
+        to {
+          transform: translateX(100%);
+        }
+      }
+
+      .progress {
+        position: relative;
+        height: 6px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: rgba(248, 244, 232, 0.12);
+      }
+
+      .progress span {
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 0%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, var(--gold), var(--red), var(--cyan));
+      }
+
+      .pipeline {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .pipe {
+        display: inline-flex;
+        align-items: center;
+        min-height: 24px;
+        padding: 0 8px;
+        border: 1px solid rgba(248, 244, 232, 0.1);
+        border-radius: 999px;
+        color: var(--dim);
+        background: rgba(248, 244, 232, 0.04);
+        font-size: 11px;
+      }
+
+      .pipe.active {
+        border-color: rgba(242, 193, 78, 0.42);
+        color: #14110b;
+        background: var(--gold);
+      }
+
+      .pipe.done {
+        border-color: rgba(93, 211, 158, 0.36);
+        color: var(--green);
+        background: rgba(93, 211, 158, 0.08);
+      }
+
+      .audio-player {
+        width: 100%;
+        height: 34px;
+        accent-color: var(--gold);
+      }
+
+      .artifact-note {
+        min-height: 34px;
+        padding: 8px 10px;
+        border: 1px dashed rgba(248, 244, 232, 0.14);
+        border-radius: 7px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .card-actions {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+      }
+
+      .reference-panel {
+        max-height: none;
+      }
+
+      .reference-body {
+        display: grid;
+        gap: 10px;
+        padding: 12px;
+      }
+
+      .reference-card {
+        border: 1px solid rgba(248, 244, 232, 0.12);
+        border-radius: var(--radius);
+        padding: 11px;
+        background: rgba(248, 244, 232, 0.055);
+      }
+
+      .reference-card strong {
+        display: block;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 17px;
+        font-weight: 400;
+      }
+
+      .reference-card p {
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      .reference-card a {
+        display: inline-block;
+        margin-top: 8px;
+        color: var(--cyan);
+        font-size: 12px;
+        text-decoration: none;
+      }
+
+      .path-panel {
+        flex: 0 0 auto;
+      }
+
+      .path-body {
+        padding: 12px;
+      }
+
+      .next-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .next-actions button {
+        min-width: 0;
+        padding: 0 10px;
+      }
+
+      .deep-dive {
+        position: absolute;
+        inset: 70px 56px 70px 56px;
+        z-index: 7;
+        display: none;
+        grid-template-rows: auto 1fr;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: rgba(5, 8, 20, 0.72);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(24px);
+      }
+
+      .deep-dive.show {
+        display: grid;
+      }
+
+      .app.sidebar-open .deep-dive {
+        inset: 70px 438px 70px 56px;
+      }
+
+      .dive-head {
+        display: flex;
+        align-items: start;
+        justify-content: space-between;
+        gap: 20px;
+        padding: 18px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .dive-head h2 {
+        font-size: 28px;
+      }
+
+      .dive-head p {
+        margin-top: 6px;
+        color: var(--muted);
+      }
+
+      .dive-grid {
+        display: grid;
+        grid-template-columns: 1.1fr 0.9fr;
+        gap: 14px;
+        min-height: 0;
+        padding: 14px;
+        overflow: auto;
+      }
+
+      .dive-box {
+        min-height: 220px;
+        border: 1px solid rgba(248, 244, 232, 0.12);
+        border-radius: var(--radius);
+        background: rgba(248, 244, 232, 0.05);
+        padding: 14px;
+      }
+
+      .dive-box h3 {
+        color: rgba(205, 221, 255, 0.62);
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        margin-bottom: 12px;
+      }
+
+      .lineage {
+        display: grid;
+        gap: 10px;
+      }
+
+      .lineage-row {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .lineage-node {
+        border: 1px solid rgba(242, 193, 78, 0.28);
+        border-radius: 7px;
+        padding: 9px 10px;
+        color: var(--ink);
+        background: rgba(242, 193, 78, 0.08);
+        font-size: 13px;
+      }
+
+      .arrow {
+        color: var(--dim);
+      }
+
+      .mini-map {
+        position: relative;
+        min-height: 230px;
+        overflow: hidden;
+        border: 1px solid rgba(248, 244, 232, 0.11);
+        border-radius: 7px;
+        background:
+          linear-gradient(90deg, rgba(248, 244, 232, 0.05) 1px, transparent 1px),
+          linear-gradient(0deg, rgba(248, 244, 232, 0.05) 1px, transparent 1px),
+          rgba(15, 16, 14, 0.7);
+        background-size: 34px 34px;
+      }
+
+      .region {
+        position: absolute;
+        min-width: 72px;
+        padding: 7px 9px;
+        border: 1px solid rgba(96, 213, 217, 0.34);
+        border-radius: 999px;
+        color: var(--cyan);
+        background: rgba(96, 213, 217, 0.08);
+        font-size: 12px;
+        text-align: center;
+      }
+
+      .dive-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .dive-list div {
+        padding: 9px 10px;
+        border: 1px solid rgba(248, 244, 232, 0.11);
+        border-radius: 7px;
+        color: var(--muted);
+        background: rgba(248, 244, 232, 0.04);
+        font-size: 13px;
+      }
+
+      .toast {
+        position: absolute;
+        left: 50%;
+        bottom: 18px;
+        z-index: 10;
+        display: none;
+        transform: translateX(-50%);
+        max-width: min(520px, calc(100vw - 36px));
+        padding: 10px 13px;
+        border: 1px solid rgba(93, 211, 158, 0.28);
+        border-radius: var(--radius);
+        color: var(--green);
+        background: rgba(20, 24, 20, 0.9);
+        box-shadow: var(--shadow);
+        font-size: 13px;
+      }
+
+      .toast.show {
+        display: block;
+      }
+
+      @media (max-width: 1120px) {
+        body {
+          overflow: auto;
+        }
+
+        .app {
+          grid-template-columns: 1fr;
+          height: auto;
+          min-height: 100vh;
+        }
+
+        .app.sidebar-open {
+          grid-template-columns: 1fr;
+        }
+
+        .map-stage {
+          height: 100dvh;
+          min-height: 0;
+        }
+
+        .side {
+          height: auto;
+          padding: 0 18px 18px;
+        }
+
+        .pack-list {
+          max-height: none;
+        }
+
+        .deep-dive {
+          position: fixed;
+          inset: 70px 18px 18px;
+        }
+      }
+
+      @media (max-width: 720px) {
+        .topbar {
+          align-items: start;
+          flex-direction: column;
+        }
+
+        .view-switch {
+          width: 100%;
+          overflow: auto;
+        }
+
+        .view-switch button {
+          flex: 1 0 auto;
+        }
+
+        .search-row {
+          grid-template-columns: 1fr;
+        }
+
+        .map-hud {
+          left: 18px;
+          right: 18px;
+          bottom: 140px;
+          width: auto;
+        }
+
+        .candidate {
+          grid-template-columns: 1fr;
+        }
+
+        .song-actions,
+        .card-actions,
+        .next-actions,
+        .dive-grid,
+        .lineage-row {
+          grid-template-columns: 1fr;
+        }
+
+        .arrow {
+          display: none;
+        }
+
+        .dive-head {
+          align-items: stretch;
+          flex-direction: column;
+        }
+      }
+
+      @media (max-height: 700px) {
+        .topbar {
+          top: 12px;
+          left: 12px;
+          right: 12px;
+        }
+
+        .mark {
+          width: 32px;
+          height: 32px;
+        }
+
+        h1 {
+          font-size: clamp(20px, 2.4vw, 34px);
+        }
+
+        .brand-sub {
+          display: none;
+        }
+
+        .search-layer {
+          left: 12px;
+          bottom: 12px;
+          width: min(600px, calc(100% - 24px));
+        }
+
+        .search-row input {
+          height: 42px;
+        }
+
+        .map-hud {
+          right: 12px;
+          bottom: 108px;
+          width: min(280px, 34vw);
+        }
+
+        .hud-block {
+          padding: 10px;
+        }
+
+        .hud-value {
+          font-size: 16px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="app">
+      <section class="map-stage" aria-label="music genre map">
+        <canvas id="mapCanvas"></canvas>
+        <canvas id="sphereScene" aria-hidden="true"></canvas>
+        <div class="sphere-labels" id="sphereLabels" aria-hidden="true"></div>
+        <div class="cinematic-overlay" aria-hidden="true"></div>
+        <div class="speed-lines" id="sphereSpeedLines" aria-hidden="true"></div>
+
+        <div class="topbar">
+          <div class="brand">
+            <div class="mark" aria-hidden="true"></div>
+            <div>
+              <h1>Music Universe Map</h1>
+              <p class="brand-sub">Enter an audible genre network through one song</p>
+            </div>
+          </div>
+          <div class="view-switch" aria-label="map view">
+            <button class="active" data-view="kinship" type="button">Sound kinship</button>
+            <button data-view="time" type="button">Time evolution</button>
+            <button data-view="geo" type="button">Place context</button>
+          </div>
+        </div>
+
+        <form class="search-layer" id="searchForm">
+          <div class="search-row">
+            <input id="songInput" placeholder="Song, artist, or YouTube link" autocomplete="off" />
+            <button class="primary" type="submit">Search</button>
+          </div>
+          <div class="candidate-list" id="candidateList" aria-live="polite"></div>
+        </form>
+
+        <div class="map-hud">
+          <div class="hud-block">
+            <p class="hud-title">Current Focus</p>
+            <p class="hud-value" id="focusLabel">Waiting for a song</p>
+            <div class="chips" id="focusChips"></div>
+          </div>
+          <div class="hud-block">
+            <p class="hud-title">Session Path</p>
+            <div class="chips" id="sessionChips"></div>
+          </div>
+        </div>
+
+        <section class="deep-dive" id="deepDive" aria-label="genre deep dive">
+          <div class="dive-head">
+            <div>
+              <h2 id="diveTitle">Funk Deep Dive</h2>
+              <p id="diveSubtitle">Local lineage and a small-world map</p>
+            </div>
+            <button class="secondary" id="closeDive" type="button">Close</button>
+          </div>
+          <div class="dive-grid">
+            <div class="dive-box">
+              <h3>Local Lineage</h3>
+              <div class="lineage" id="lineageTree"></div>
+            </div>
+            <div class="dive-box">
+              <h3>Small-World Map</h3>
+              <div class="mini-map" id="worldMap"></div>
+            </div>
+            <div class="dive-box">
+              <h3>Representative Tracks</h3>
+              <div class="dive-list" id="diveTracks"></div>
+            </div>
+            <div class="dive-box">
+              <h3>Representative Artists</h3>
+              <div class="dive-list" id="diveArtists"></div>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <aside class="side" aria-label="listening guide workspace">
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Song Identity</h2>
+            <span class="status-pill" id="identityState">Unbound</span>
+          </div>
+          <div class="now-song" id="songPanel">
+            <p class="empty-note">Enter a song, artist, or link, then confirm the exact public result.</p>
+          </div>
+        </section>
+
+        <section class="panel pack">
+          <div class="panel-head">
+            <div>
+              <h2>Two-host AI Radio</h2>
+              <p class="panel-kicker">Three rounds / about 5 minutes each / DeepSeek script + Bean TTS</p>
+            </div>
+            <div class="panel-actions">
+              <button class="secondary" id="generateScript" type="button" disabled>Generate Script</button>
+              <button class="secondary" id="generatePack" type="button" disabled>Generate Audio</button>
+            </div>
+          </div>
+          <div class="pack-list" id="packList"></div>
+        </section>
+
+        <section class="panel reference-panel">
+          <div class="panel-head">
+            <h2>Music Reference Cards</h2>
+            <span class="status-pill" id="referenceCount">0</span>
+          </div>
+          <div class="reference-body" id="referenceBody">
+            <p class="empty-note">Reference clips will appear here in sync while the guide plays.</p>
+          </div>
+        </section>
+
+        <section class="panel path-panel">
+          <div class="panel-head">
+            <h2>Next Step</h2>
+            <button class="secondary" id="exportMap" type="button">Export Image</button>
+          </div>
+          <div class="path-body">
+            <p class="empty-note" id="nextPrompt">After the guide finishes, keep digging here or jump somewhere entirely different.</p>
+            <div class="next-actions" id="nextActions"></div>
+          </div>
+        </section>
+      </aside>
+    </main>
+
+    <div class="toast" id="toast" role="status"></div>
+
+    <script type="module">
+      import * as THREE from "/assets/vendor/three.module.min.js";
+
+      const sphereCanvas = document.querySelector("#sphereScene");
+      const sphereLabelsEl = document.querySelector("#sphereLabels");
+      const sphereSpeedLines = document.querySelector("#sphereSpeedLines");
+      const sphereStage = document.querySelector(".map-stage");
+
+      const importantSphereNames = new Set([
+        "pop", "rap", "rock", "hip hop", "techno", "jazz", "metal", "ambient", "house", "classical",
+        "country", "r&b", "soul", "folk", "punk", "reggaeton", "indie rock", "edm", "blues", "latin",
+        "trap", "dance pop"
+      ]);
+
+      const sphereVertexShader = `
+        attribute float aSize;
+        attribute float aAlpha;
+        attribute float aSeed;
+        attribute float aFocus;
+        attribute float aSpatial;
+        attribute float aLineage;
+        attribute float aLocal;
+        uniform float uTime;
+        uniform float uPixelRatio;
+        uniform float uBaseSize;
+        uniform float uFocusPulse;
+        varying vec3 vColor;
+        varying float vAlpha;
+        varying float vGlow;
+        void main() {
+          vColor = color;
+          float relation = max(aSpatial * 0.7, aLineage);
+          float local = aLocal;
+          float focus = aFocus;
+          float pulse = sin(uTime * 3.2 + aSeed * 6.2831) * 0.5 + 0.5;
+          float breathe = sin(uTime * 0.8 + aSeed * 12.0) * 0.5 + 0.5;
+          vec3 displaced = position;
+          vec3 normal = normalize(position);
+          displaced += normal * (0.08 * breathe + local * 0.16 + relation * 0.15 * pulse + focus * 0.42 * uFocusPulse);
+          displaced.x += sin(uTime * 0.32 + aSeed * 17.0) * 0.025;
+          displaced.y += cos(uTime * 0.29 + aSeed * 13.0) * 0.025;
+          vec4 mvPosition = modelViewMatrix * vec4(displaced, 1.0);
+          gl_Position = projectionMatrix * mvPosition;
+          float size = uBaseSize * (0.72 + aSize * 1.9);
+          size *= 1.0 + breathe * 0.24;
+          size *= 1.0 + local * 0.75 + focus * 4.2 + aSpatial * 1.25 + aLineage * 1.6;
+          gl_PointSize = size * uPixelRatio * (24.0 / -mvPosition.z);
+          vGlow = max(max(focus, relation), local * 0.55);
+          vAlpha = aAlpha * (0.34 + breathe * 0.16 + local * 0.16) + relation * 0.32 + focus * 0.62;
+        }
+      `;
+
+      const sphereFragmentShader = `
+        varying vec3 vColor;
+        varying float vAlpha;
+        varying float vGlow;
+        void main() {
+          vec2 uv = gl_PointCoord - vec2(0.5);
+          float d = length(uv);
+          float core = smoothstep(0.36, 0.06, d);
+          float halo = smoothstep(0.5, 0.16, d) * 0.2;
+          vec3 glowColor = mix(vColor, vec3(0.98, 0.86, 0.56), vGlow * 0.55);
+          vec3 color = mix(vColor, glowColor, halo + vGlow * 0.35);
+          float alpha = (core + halo) * clamp(vAlpha, 0.0, 1.45);
+          if (alpha < 0.02) discard;
+          gl_FragColor = vec4(color, alpha);
+        }
+      `;
+
+      const sphereState = {
+        genres: [],
+        byId: new Map(),
+        bySlug: new Map(),
+        selected: null,
+        focusIds: new Set(),
+        spatialIds: new Set(),
+        lineageIds: new Set(),
+        scene: new THREE.Scene(),
+        camera: new THREE.PerspectiveCamera(44, 1, 0.1, 100),
+        renderer: null,
+        sphereGroup: new THREE.Group(),
+        flowGroup: new THREE.Group(),
+        points: null,
+        geometry: null,
+        relationLines: [],
+        ambientLines: [],
+        materialsReady: false,
+        cameraDistance: 26,
+        targetCameraDistance: 26,
+        cameraFov: 44,
+        targetCameraFov: 44,
+        cameraRoll: 0,
+        targetCameraRoll: 0,
+        wheelVelocity: 0,
+        focusNormal: new THREE.Vector3(0, 0, 1),
+        targetRotation: { x: -0.16, y: 0.25 },
+        currentRotation: { x: -0.16, y: 0.25 },
+        labelZoomBucket: -1,
+        focusUpdateFrame: 0
+      };
+
+      window.musicSphereVizModuleLoaded = true;
+
+      function sphereColorToRgb(color) {
+        const c = new THREE.Color(color || "#8aa7ff");
+        return [c.r, c.g, c.b];
+      }
+
+      function createSphereParticles() {
+        const count = sphereState.genres.length;
+        const positions = new Float32Array(count * 3);
+        const colors = new Float32Array(count * 3);
+        const sizes = new Float32Array(count);
+        const alphas = new Float32Array(count);
+        const seeds = new Float32Array(count);
+        const focus = new Float32Array(count);
+        const spatial = new Float32Array(count);
+        const lineage = new Float32Array(count);
+        const local = new Float32Array(count);
+
+        sphereState.genres.forEach((genre, index) => {
+          positions[index * 3] = genre.sphere.x;
+          positions[index * 3 + 1] = genre.sphere.y;
+          positions[index * 3 + 2] = genre.sphere.z;
+          const [r, g, b] = sphereColorToRgb(genre.color);
+          colors[index * 3] = r;
+          colors[index * 3 + 1] = g;
+          colors[index * 3 + 2] = b;
+          sizes[index] = 0.35 + genre.normalized.importance * 1.15;
+          alphas[index] = 0.34 + genre.normalized.importance * 0.42;
+          seeds[index] = (genre.seed % 10000) / 10000;
+        });
+
+        sphereState.geometry = new THREE.BufferGeometry();
+        sphereState.geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+        sphereState.geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+        sphereState.geometry.setAttribute("aSize", new THREE.BufferAttribute(sizes, 1));
+        sphereState.geometry.setAttribute("aAlpha", new THREE.BufferAttribute(alphas, 1));
+        sphereState.geometry.setAttribute("aSeed", new THREE.BufferAttribute(seeds, 1));
+        sphereState.geometry.setAttribute("aFocus", new THREE.BufferAttribute(focus, 1));
+        sphereState.geometry.setAttribute("aSpatial", new THREE.BufferAttribute(spatial, 1));
+        sphereState.geometry.setAttribute("aLineage", new THREE.BufferAttribute(lineage, 1));
+        sphereState.geometry.setAttribute("aLocal", new THREE.BufferAttribute(local, 1));
+
+        const material = new THREE.ShaderMaterial({
+          uniforms: {
+            uTime: { value: 0 },
+            uPixelRatio: { value: sphereState.renderer.getPixelRatio() },
+            uBaseSize: { value: 11 },
+            uFocusPulse: { value: 0 }
+          },
+          vertexShader: sphereVertexShader,
+          fragmentShader: sphereFragmentShader,
+          transparent: true,
+          vertexColors: true,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending
+        });
+
+        sphereState.points = new THREE.Points(sphereState.geometry, material);
+        sphereState.sphereGroup.add(sphereState.points);
+        sphereState.materialsReady = true;
+      }
+
+      function createSphereAmbientLines() {
+        sphereState.ambientLines.forEach((line) => sphereState.sphereGroup.remove(line));
+        sphereState.ambientLines = [];
+        const candidates = sphereState.genres
+          .filter((genre) => genre.normalized.importance > 0.32 && genre.relations.spatial.length)
+          .slice(0, 130);
+
+        for (const genre of candidates) {
+          const neighbor = sphereState.byId.get(genre.relations.spatial[0]);
+          if (!neighbor) continue;
+          const a = new THREE.Vector3(genre.sphere.x, genre.sphere.y, genre.sphere.z).normalize().multiplyScalar(10.12);
+          const b = new THREE.Vector3(neighbor.sphere.x, neighbor.sphere.y, neighbor.sphere.z).normalize().multiplyScalar(10.12);
+          if (a.distanceTo(b) > 2.6) continue;
+          const geometry = new THREE.BufferGeometry().setFromPoints([a, b]);
+          const material = new THREE.LineBasicMaterial({
+            color: 0x6078c8,
+            transparent: true,
+            opacity: 0.12,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+          });
+          const line = new THREE.Line(geometry, material);
+          sphereState.sphereGroup.add(line);
+          sphereState.ambientLines.push(line);
+        }
+      }
+
+      function updateSphereAttributes() {
+        if (!sphereState.geometry) return;
+        const focus = sphereState.geometry.getAttribute("aFocus");
+        const spatial = sphereState.geometry.getAttribute("aSpatial");
+        const lineage = sphereState.geometry.getAttribute("aLineage");
+        sphereState.genres.forEach((genre, index) => {
+          focus.setX(index, sphereState.focusIds.has(genre.id) ? 1 : 0);
+          spatial.setX(index, sphereState.spatialIds.has(genre.id) ? 1 : 0);
+          lineage.setX(index, sphereState.lineageIds.has(genre.id) ? 1 : 0);
+        });
+        focus.needsUpdate = true;
+        spatial.needsUpdate = true;
+        lineage.needsUpdate = true;
+      }
+
+      function updateSphereLocalFocus() {
+        if (!sphereState.geometry) return;
+        const local = sphereState.geometry.getAttribute("aLocal");
+        const inverse = sphereState.sphereGroup.quaternion.clone().invert();
+        const worldFocus = new THREE.Vector3(0, 0, 1).applyQuaternion(sphereState.camera.quaternion);
+        const sphereFocus = worldFocus.applyQuaternion(inverse).normalize();
+        sphereState.focusNormal.copy(sphereFocus);
+        sphereState.genres.forEach((genre, index) => {
+          const normal = new THREE.Vector3(genre.sphere.x, genre.sphere.y, genre.sphere.z).normalize();
+          local.setX(index, THREE.MathUtils.smoothstep(normal.dot(sphereState.focusNormal), 0.86, 0.995));
+        });
+        local.needsUpdate = true;
+      }
+
+      function makeSphereArc(start, end, color, opacity = 0.55) {
+        const a = new THREE.Vector3(start.x, start.y, start.z);
+        const b = new THREE.Vector3(end.x, end.y, end.z);
+        const mid = a.clone().add(b).normalize().multiplyScalar(11.3);
+        const curve = new THREE.CatmullRomCurve3([
+          a.clone().normalize().multiplyScalar(10.25),
+          mid,
+          b.clone().normalize().multiplyScalar(10.25)
+        ]);
+        const lineGeometry = new THREE.BufferGeometry().setFromPoints(curve.getPoints(36));
+        const lineMaterial = new THREE.LineBasicMaterial({
+          color,
+          transparent: true,
+          opacity,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false
+        });
+        const line = new THREE.Line(lineGeometry, lineMaterial);
+        line.userData.curve = curve;
+        line.userData.offset = Math.random();
+        sphereState.flowGroup.add(line);
+        sphereState.relationLines.push(line);
+      }
+
+      function createSphereFlowDot(color) {
+        return new THREE.Mesh(
+          new THREE.SphereGeometry(0.045, 10, 10),
+          new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending })
+        );
+      }
+
+      function updateSphereRelationFlows() {
+        sphereState.flowGroup.clear();
+        sphereState.relationLines = [];
+        if (!sphereState.selected) return;
+        const spatial = sphereState.selected.relations.spatial.slice(0, 5).map((id) => sphereState.byId.get(id)).filter(Boolean);
+        const lineage = sphereState.selected.relations.lineage.slice(0, 5).map((id) => sphereState.byId.get(id)).filter(Boolean);
+        spatial.forEach((genre) => makeSphereArc(sphereState.selected.sphere, genre.sphere, 0x8aa7ff, 0.38));
+        lineage.forEach((genre) => makeSphereArc(sphereState.selected.sphere, genre.sphere, 0xbaf58f, 0.5));
+        for (const line of sphereState.relationLines) {
+          const dot = createSphereFlowDot(line.material.color);
+          dot.userData.line = line;
+          dot.userData.speed = 0.18 + Math.random() * 0.16;
+          sphereState.flowGroup.add(dot);
+        }
+      }
+
+      function rotateSphereToGenre(genre) {
+        const vector = new THREE.Vector3(genre.sphere.x, genre.sphere.y, genre.sphere.z).normalize();
+        sphereState.targetRotation.y = -Math.atan2(vector.x, vector.z);
+        sphereState.targetRotation.x = Math.asin(vector.y) * 0.65;
+      }
+
+      function sphereLabelSet() {
+        const items = [];
+        const byName = new Map(sphereState.genres.map((genre) => [genre.name.toLowerCase(), genre]));
+        const zoomLevel = THREE.MathUtils.clamp((30 - sphereState.targetCameraDistance) / 14, 0, 1);
+        const rankedCount = zoomLevel > 0.7 ? 190 : zoomLevel > 0.35 ? 130 : zoomLevel > 0.12 ? 76 : 0;
+        for (const name of importantSphereNames) {
+          const genre = byName.get(name);
+          if (genre) items.push({ genre, kind: "default" });
+        }
+        if (rankedCount > 0) {
+          sphereState.genres
+            .slice()
+            .sort((a, b) => b.normalized.importance - a.normalized.importance)
+            .slice(0, rankedCount)
+            .forEach((genre) => items.push({ genre, kind: "default" }));
+        }
+        if (sphereState.targetCameraDistance < 23) {
+          sphereState.genres
+            .map((genre) => {
+              const normal = new THREE.Vector3(genre.sphere.x, genre.sphere.y, genre.sphere.z).normalize();
+              return { genre, dot: normal.dot(sphereState.focusNormal), score: normal.dot(sphereState.focusNormal) + genre.normalized.importance * 0.18 };
+            })
+            .filter((item) => item.dot > 0.93)
+            .sort((a, b) => b.score - a.score)
+            .slice(0, sphereState.targetCameraDistance < 18 ? 36 : 20)
+            .forEach((item) => items.push({ genre: item.genre, kind: "spatial" }));
+        }
+        if (sphereState.selected) {
+          items.push({ genre: sphereState.selected, kind: "focus" });
+          sphereState.selected.relations.spatial.slice(0, 6).forEach((id) => {
+            const genre = sphereState.byId.get(id);
+            if (genre) items.push({ genre, kind: "spatial" });
+          });
+          sphereState.selected.relations.lineage.slice(0, 6).forEach((id) => {
+            const genre = sphereState.byId.get(id);
+            if (genre) items.push({ genre, kind: "lineage" });
+          });
+        }
+        const unique = new Map();
+        items.forEach((item) => unique.set(`${item.genre.id}-${item.kind}`, item));
+        return [...unique.values()];
+      }
+
+      function updateSphereLabels() {
+        sphereState.labelZoomBucket = Math.round(sphereState.cameraDistance);
+        sphereLabelsEl.innerHTML = sphereLabelSet()
+          .map(({ genre, kind }) => `<span class="sphere-label ${kind}" data-id="${genre.id}">${genre.name}</span>`)
+          .join("");
+      }
+
+      function projectSphereLabels() {
+        const rect = sphereStage.getBoundingClientRect();
+        const halfWidth = rect.width / 2;
+        const halfHeight = rect.height / 2;
+        const matrixWorld = sphereState.sphereGroup.matrixWorld;
+        sphereLabelsEl.querySelectorAll(".sphere-label").forEach((node) => {
+          const genre = sphereState.byId.get(Number(node.dataset.id));
+          if (!genre) return;
+          const vector = new THREE.Vector3(genre.sphere.x, genre.sphere.y, genre.sphere.z).applyMatrix4(matrixWorld);
+          const facing = vector.clone().normalize().dot(sphereState.camera.position.clone().normalize());
+          vector.project(sphereState.camera);
+          const visible = vector.z < 1 && facing > -0.18;
+          node.style.opacity = visible ? "1" : "0";
+          node.style.transform = `translate(${vector.x * halfWidth + halfWidth}px, ${-vector.y * halfHeight + halfHeight}px) translate(-50%, -50%)`;
+        });
+      }
+
+      function resizeSphereScene() {
+        const rect = sphereStage.getBoundingClientRect();
+        sphereState.camera.aspect = rect.width / Math.max(1, rect.height);
+        sphereState.camera.updateProjectionMatrix();
+        sphereState.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+        sphereState.renderer.setSize(rect.width, rect.height, false);
+        if (sphereState.materialsReady) {
+          sphereState.points.material.uniforms.uPixelRatio.value = sphereState.renderer.getPixelRatio();
+        }
+      }
+
+      function animateSphere(timeMs = 0) {
+        requestAnimationFrame(animateSphere);
+        const time = timeMs / 1000;
+        if (!sphereState.selected) sphereState.targetRotation.y += 0.0012 + Math.abs(sphereState.wheelVelocity) * 0.00012;
+        sphereState.currentRotation.x += (sphereState.targetRotation.x - sphereState.currentRotation.x) * 0.055;
+        sphereState.currentRotation.y += (sphereState.targetRotation.y - sphereState.currentRotation.y) * 0.055;
+        sphereState.cameraDistance += (sphereState.targetCameraDistance - sphereState.cameraDistance) * 0.08;
+        sphereState.cameraFov += (sphereState.targetCameraFov - sphereState.cameraFov) * 0.08;
+        sphereState.cameraRoll += (sphereState.targetCameraRoll - sphereState.cameraRoll) * 0.08;
+        sphereState.camera.position.z = sphereState.cameraDistance;
+        sphereState.camera.fov = sphereState.cameraFov;
+        sphereState.camera.rotation.z = sphereState.cameraRoll;
+        sphereState.camera.updateProjectionMatrix();
+        sphereState.targetCameraRoll *= 0.92;
+        sphereState.wheelVelocity *= 0.88;
+        sphereSpeedLines.style.opacity = String(THREE.MathUtils.clamp(Math.abs(sphereState.wheelVelocity) / 65, 0, 0.58));
+        sphereSpeedLines.style.transform = `rotate(${sphereState.cameraRoll * 18}deg) scale(${1 + Math.abs(sphereState.wheelVelocity) / 420})`;
+        if (Math.round(sphereState.cameraDistance) !== sphereState.labelZoomBucket && Math.abs(sphereState.targetCameraDistance - sphereState.cameraDistance) < 0.25) {
+          updateSphereLabels();
+        }
+        sphereState.sphereGroup.rotation.x = sphereState.currentRotation.x;
+        sphereState.sphereGroup.rotation.y = sphereState.currentRotation.y;
+        sphereState.flowGroup.rotation.copy(sphereState.sphereGroup.rotation);
+        sphereState.focusUpdateFrame += 1;
+        if (sphereState.focusUpdateFrame % 3 === 0) updateSphereLocalFocus();
+        if (sphereState.materialsReady) {
+          sphereState.points.material.uniforms.uTime.value = time;
+          sphereState.points.material.uniforms.uFocusPulse.value = sphereState.selected ? Math.sin(time * 4.5) * 0.5 + 0.5 : 0;
+        }
+        for (const child of sphereState.flowGroup.children) {
+          if (!child.userData.line) continue;
+          const line = child.userData.line;
+          const t = (time * child.userData.speed + line.userData.offset) % 1;
+          child.position.copy(line.userData.curve.getPoint(t));
+        }
+        projectSphereLabels();
+        sphereState.renderer.render(sphereState.scene, sphereState.camera);
+      }
+
+      function resolveSphereGenre(idOrName) {
+        const key = String(idOrName || "").toLowerCase();
+        return sphereState.bySlug.get(key) || sphereState.genres.find((genre) => genre.name.toLowerCase() === key || genre.slug === key);
+      }
+
+      window.musicSphereViz = {
+        select(ids = []) {
+          const roots = ids.map(resolveSphereGenre).filter(Boolean);
+          const selected = roots[0];
+          sphereState.selected = selected || null;
+          sphereState.focusIds = new Set(roots.map((genre) => genre.id));
+          sphereState.spatialIds = new Set();
+          sphereState.lineageIds = new Set();
+          roots.forEach((genre) => {
+            genre.relations.spatial.slice(0, 12).forEach((id) => sphereState.spatialIds.add(id));
+            genre.relations.lineage.slice(0, 10).forEach((id) => sphereState.lineageIds.add(id));
+          });
+          if (selected) rotateSphereToGenre(selected);
+          updateSphereAttributes();
+          updateSphereRelationFlows();
+          updateSphereLabels();
+        },
+        reset() {
+          sphereState.selected = null;
+          sphereState.focusIds = new Set();
+          sphereState.spatialIds = new Set();
+          sphereState.lineageIds = new Set();
+          sphereState.targetRotation = { x: -0.16, y: 0.25 };
+          sphereState.targetCameraDistance = 26;
+          sphereState.targetCameraFov = 44;
+          sphereState.targetCameraRoll = 0;
+          updateSphereAttributes();
+          updateSphereRelationFlows();
+          updateSphereLabels();
+        },
+        zoom(delta) {
+          sphereState.targetCameraDistance = THREE.MathUtils.clamp(sphereState.targetCameraDistance + delta, 15, 34);
+          const zoomProgress = THREE.MathUtils.clamp((34 - sphereState.targetCameraDistance) / 19, 0, 1);
+          sphereState.targetCameraFov = THREE.MathUtils.lerp(50, 33, zoomProgress);
+          sphereState.wheelVelocity += -delta * 8;
+          sphereState.targetCameraRoll += THREE.MathUtils.clamp(delta * 0.0025, -0.08, 0.08);
+          updateSphereLabels();
+        }
+      };
+      window.addEventListener("musicSphere:select", (event) => {
+        window.musicSphereViz.select(event.detail?.ids || []);
+      });
+      window.addEventListener("musicSphere:reset", () => {
+        window.musicSphereViz.reset();
+      });
+
+      async function initSphereScene() {
+        sphereState.renderer = new THREE.WebGLRenderer({ canvas: sphereCanvas, antialias: true, alpha: true });
+        sphereState.camera.position.set(0, 0, 26);
+        sphereState.scene.add(sphereState.sphereGroup, sphereState.flowGroup);
+        resizeSphereScene();
+        const response = await fetch("/assets/data/sphere-genres.json", { cache: "no-store" });
+        const data = await response.json();
+        sphereState.genres = data.genres || [];
+        sphereState.byId = new Map(sphereState.genres.map((genre) => [genre.id, genre]));
+        sphereState.bySlug = new Map(sphereState.genres.flatMap((genre) => [[genre.slug, genre], [genre.name.toLowerCase(), genre]]));
+        createSphereParticles();
+        createSphereAmbientLines();
+        updateSphereLabels();
+        animateSphere();
+      }
+
+      window.addEventListener("resize", resizeSphereScene);
+      initSphereScene().catch((error) => console.error("Sphere scene failed", error));
+    </script>
+
+    <script>
+      const canvas = document.querySelector("#mapCanvas");
+      const ctx = canvas.getContext("2d");
+      const app = document.querySelector(".app");
+      const searchForm = document.querySelector("#searchForm");
+      const songInput = document.querySelector("#songInput");
+      const candidateList = document.querySelector("#candidateList");
+      const focusLabel = document.querySelector("#focusLabel");
+      const focusChips = document.querySelector("#focusChips");
+      const sessionChips = document.querySelector("#sessionChips");
+      const identityState = document.querySelector("#identityState");
+      const songPanel = document.querySelector("#songPanel");
+      const generateScript = document.querySelector("#generateScript");
+      const generatePack = document.querySelector("#generatePack");
+      const packList = document.querySelector("#packList");
+      const referenceBody = document.querySelector("#referenceBody");
+      const referenceCount = document.querySelector("#referenceCount");
+      const nextPrompt = document.querySelector("#nextPrompt");
+      const nextActions = document.querySelector("#nextActions");
+      const exportMap = document.querySelector("#exportMap");
+      const deepDive = document.querySelector("#deepDive");
+      const closeDive = document.querySelector("#closeDive");
+      const diveTitle = document.querySelector("#diveTitle");
+      const diveSubtitle = document.querySelector("#diveSubtitle");
+      const lineageTree = document.querySelector("#lineageTree");
+      const worldMap = document.querySelector("#worldMap");
+      const diveTracks = document.querySelector("#diveTracks");
+      const diveArtists = document.querySelector("#diveArtists");
+      const toast = document.querySelector("#toast");
+
+      const palette = {
+        rock: "#ff6b5f",
+        blues: "#60d5d9",
+        jazz: "#f2c14e",
+        soul: "#f28bb8",
+        funk: "#5dd39e",
+        disco: "#b7a5ff",
+        hiphop: "#ff9f5f",
+        electronic: "#70a7ff",
+        techno: "#8ce66f",
+        house: "#f7a6ff",
+        ambient: "#95d5b2",
+        reggae: "#ffd166",
+        latin: "#ef476f",
+        afrobeat: "#06d6a0",
+        punk: "#ff4d6d",
+        metal: "#c7c7c7",
+        country: "#d6a15f",
+        folk: "#a5d6a7",
+        gospel: "#f4d35e",
+        classical: "#b8c0ff",
+        rnb: "#f28482",
+        synthpop: "#4cc9f0",
+        grunge: "#adb5bd",
+        trap: "#c77dff",
+        cpop: "#ffcf70",
+        mandopop: "#ff8fab",
+        cantopop: "#72ddf7",
+        artpop: "#cdb4db",
+        popballad: "#f1fa8c"
+      };
+      const cosmicPalette = [
+        "#ff5b6e",
+        "#ff9f45",
+        "#f7d154",
+        "#93ef73",
+        "#35d69b",
+        "#38d7e8",
+        "#5e9bff",
+        "#9877ff",
+        "#d96cff",
+        "#ff72b6"
+      ];
+
+      const curatedGenres = [
+        { id: "rock", name: "Rock", era: "1950s", lat: 10, lon: -18, region: "US / UK", tags: ["guitar", "backbeat"] },
+        { id: "blues", name: "Blues", era: "1890s", lat: -3, lon: -44, region: "US South", tags: ["call response", "12-bar"] },
+        { id: "jazz", name: "Jazz", era: "1910s", lat: 16, lon: -62, region: "New Orleans", tags: ["swing", "improv"] },
+        { id: "soul", name: "Soul", era: "1950s", lat: -8, lon: -28, region: "US", tags: ["gospel", "voice"] },
+        { id: "funk", name: "Funk", era: "1960s", lat: -20, lon: -8, region: "US", tags: ["one", "bassline"] },
+        { id: "disco", name: "Disco", era: "1970s", lat: -34, lon: 17, region: "NYC", tags: ["dancefloor", "strings"] },
+        { id: "hiphop", name: "Hip-Hop", era: "1970s", lat: 4, lon: 25, region: "Bronx", tags: ["breaks", "sampling"] },
+        { id: "electronic", name: "Electronic", era: "1950s", lat: 28, lon: 40, region: "Global", tags: ["synth", "machine"] },
+        { id: "techno", name: "Techno", era: "1980s", lat: 13, lon: 68, region: "Detroit", tags: ["machine soul", "pulse"] },
+        { id: "house", name: "House", era: "1980s", lat: -15, lon: 55, region: "Chicago", tags: ["four-on-floor", "club"] },
+        { id: "ambient", name: "Ambient", era: "1970s", lat: 47, lon: 72, region: "UK / Japan", tags: ["space", "texture"] },
+        { id: "reggae", name: "Reggae", era: "1960s", lat: -5, lon: -78, region: "Jamaica", tags: ["offbeat", "dub"] },
+        { id: "latin", name: "Latin", era: "1940s", lat: -32, lon: -70, region: "Caribbean", tags: ["clave", "dance"] },
+        { id: "afrobeat", name: "Afrobeat", era: "1970s", lat: -38, lon: -38, region: "Lagos", tags: ["polyrhythm", "horns"] },
+        { id: "punk", name: "Punk", era: "1970s", lat: 32, lon: -2, region: "NYC / London", tags: ["speed", "DIY"] },
+        { id: "metal", name: "Metal", era: "1970s", lat: 42, lon: 15, region: "Birmingham", tags: ["riff", "distortion"] },
+        { id: "country", name: "Country", era: "1920s", lat: 34, lon: -88, region: "Appalachia", tags: ["story", "twang"] },
+        { id: "folk", name: "Folk", era: "1800s", lat: 50, lon: -42, region: "Transatlantic", tags: ["ballad", "acoustic"] },
+        { id: "gospel", name: "Gospel", era: "1930s", lat: 8, lon: -82, region: "US Church", tags: ["choir", "testimony"] },
+        { id: "classical", name: "Classical", era: "1700s", lat: 64, lon: 36, region: "Europe", tags: ["orchestra", "form"] },
+        { id: "rnb", name: "R&B", era: "1940s", lat: -18, lon: -52, region: "US", tags: ["groove", "vocal"] },
+        { id: "synthpop", name: "Synthpop", era: "1980s", lat: 39, lon: 55, region: "UK / Europe", tags: ["hooks", "synth"] },
+        { id: "grunge", name: "Grunge", era: "1990s", lat: 24, lon: 8, region: "Seattle", tags: ["noise", "angst"] },
+        { id: "trap", name: "Trap", era: "2000s", lat: -4, lon: 44, region: "Atlanta", tags: ["808", "hats"] },
+        { id: "cpop", name: "C-Pop", era: "1970s", lat: 6, lon: 116, region: "Greater China", tags: ["melody", "media"] },
+        { id: "mandopop", name: "Mandopop", era: "1980s", lat: -8, lon: 126, region: "Taipei / Beijing", tags: ["ballad", "karaoke"] },
+        { id: "cantopop", name: "Cantopop", era: "1970s", lat: 18, lon: 128, region: "Hong Kong", tags: ["city pop", "cinema"] },
+        { id: "artpop", name: "Art Pop", era: "1980s", lat: 31, lon: 106, region: "Global", tags: ["texture", "persona"] },
+        { id: "popballad", name: "Pop Ballad", era: "1960s", lat: -25, lon: 106, region: "Global", tags: ["vocal", "longing"] }
+      ];
+
+      let genres = [...curatedGenres];
+      let genreById = Object.fromEntries(genres.map((genre) => [genre.id, genre]));
+      const curatedGenreIds = new Set(curatedGenres.map((genre) => genre.id));
+      const initialMajorGenreIds = new Set(["rock", "folk", "hiphop", "rnb", "electronic", "jazz", "latin", "classical"]);
+      const everyNoiseGenreUrl = "assets/data/every-noise-genres.json";
+
+      const edges = [
+        ["blues", "jazz", "Historical influence"],
+        ["blues", "rock", "Historical influence"],
+        ["gospel", "soul", "Historical influence"],
+        ["soul", "funk", "Sound kinship"],
+        ["funk", "disco", "Fusion"],
+        ["funk", "hiphop", "Sample path"],
+        ["disco", "house", "Historical influence"],
+        ["house", "techno", "Sound kinship"],
+        ["electronic", "techno", "Historical influence"],
+        ["electronic", "ambient", "Sound kinship"],
+        ["electronic", "synthpop", "Fusion"],
+        ["punk", "grunge", "Historical influence"],
+        ["rock", "punk", "Historical influence"],
+        ["rock", "metal", "Fusion"],
+        ["folk", "country", "Regional variant"],
+        ["country", "rock", "Fusion"],
+        ["jazz", "latin", "Fusion"],
+        ["latin", "afrobeat", "Regional variant"],
+        ["afrobeat", "funk", "Fusion"],
+        ["reggae", "hiphop", "Historical influence"],
+        ["rnb", "soul", "Sound kinship"],
+        ["rnb", "trap", "Fusion"],
+        ["hiphop", "trap", "Historical influence"],
+        ["classical", "ambient", "Fusion"],
+        ["jazz", "funk", "Fusion"],
+        ["cpop", "mandopop", "Regional variant"],
+        ["cpop", "cantopop", "Regional variant"],
+        ["cpop", "popballad", "Sound kinship"],
+        ["mandopop", "popballad", "Fusion"],
+        ["cantopop", "artpop", "Fusion"],
+        ["artpop", "synthpop", "Sound kinship"],
+        ["popballad", "folk", "Sound kinship"]
+      ];
+
+      const searchCatalog = [
+        {
+          title: "Superstition",
+          artist: "Stevie Wonder",
+          year: "1972",
+          bpm: "101",
+          key: "E-flat minor",
+          region: "Detroit / Motown",
+          source: "Official audio / public video",
+          videoId: "0CFuCYNx-1g",
+          confidence: "92%",
+          genres: ["funk", "soul", "rnb", "rock"],
+          summary: "A clavinet riff, syncopated drums, and vocal tension lock funk, soul, and rock energy together."
+        },
+        {
+          title: "Billie Jean",
+          artist: "Michael Jackson",
+          year: "1982",
+          bpm: "117",
+          key: "F-sharp minor",
+          region: "Los Angeles",
+          source: "Official video / public metadata",
+          videoId: "Zi_XLOBDo_Y",
+          confidence: "89%",
+          genres: ["rnb", "disco", "funk", "synthpop"],
+          summary: "The bass figure, drum-machine feel, and minimal production connect the dance floor, R&B, and 1980s pop."
+        },
+        {
+          title: "Smells Like Teen Spirit",
+          artist: "Nirvana",
+          year: "1991",
+          bpm: "117",
+          key: "F minor",
+          region: "Seattle",
+          source: "Official video / public metadata",
+          videoId: "hTWKbfoikeg",
+          confidence: "87%",
+          genres: ["grunge", "rock", "punk", "metal"],
+          summary: "Sharp dynamics, distorted guitars, and underground aesthetics pull punk, metal, and alternative rock into the same region."
+        },
+        {
+          title: "One More Time",
+          artist: "Daft Punk",
+          year: "2000",
+          bpm: "123",
+          key: "D major",
+          region: "Paris",
+          source: "Official video / public metadata",
+          videoId: "FGBhQbmPwH8",
+          confidence: "84%",
+          genres: ["house", "disco", "electronic", "funk"],
+          summary: "Filtered samples, four-on-the-floor motion, and bright French house textures connect disco with electronic dance music."
+        }
+      ];
+
+      const packTemplates = [
+        {
+          id: "song",
+          title: "Round 1: Song and artist deep dive",
+          brief: "Female expert leads sonic detail, artist context, and song placement; male newcomer asks and confirms.",
+          minutes: "About 5 min",
+          goal: "DeepSeek writes a two-host dialogue script, then Doubao TTS renders the podcast audio.",
+          refs: [
+            {
+              title: "Superstition",
+              artist: "Stevie Wonder",
+              youtube: "https://www.youtube.com/watch?v=0CFuCYNx-1g",
+              time: "01:24-01:38",
+              reason: "The syncopated clavinet riff makes funk's center of gravity audible before the harmony arrives.",
+              nodes: ["funk", "soul"],
+              edges: ["soul->funk"]
+            },
+            {
+              title: "Maybe Your Baby",
+              artist: "Stevie Wonder",
+              youtube: "https://www.youtube.com/results?search_query=Stevie+Wonder+Maybe+Your+Baby",
+              time: "00:48-01:02",
+              reason: "A looser, stickier groove from the same period shows the body feel of late Motown.",
+              nodes: ["funk", "rnb"],
+              edges: ["rnb->soul"]
+            },
+            {
+              title: "Higher Ground",
+              artist: "Stevie Wonder",
+              youtube: "https://www.youtube.com/results?search_query=Stevie+Wonder+Higher+Ground",
+              time: "00:17-00:31",
+              reason: "Keyboard riff, drums, and vocal line compress into one upward push.",
+              nodes: ["funk", "rock"],
+              edges: ["blues->rock"]
+            }
+          ]
+        },
+        {
+          id: "map",
+          title: "Round 2: Genre map mutation",
+          brief: "Move from the seed song into neighboring tracks and explain why sounds, styles, and audiences connect.",
+          minutes: "About 5 min",
+          goal: "One of three rounds, with reference clips, two-host exchange, and music-critic style commentary.",
+          refs: [
+            {
+              title: "I Got You (I Feel Good)",
+              artist: "James Brown",
+              youtube: "https://www.youtube.com/results?search_query=James+Brown+I+Got+You+I+Feel+Good",
+              time: "00:32-00:46",
+              reason: "James Brown pushes the accent to the one, making funk's skeleton unmistakable.",
+              nodes: ["funk", "soul", "gospel"],
+              edges: ["gospel->soul", "soul->funk"]
+            },
+            {
+              title: "Good Times",
+              artist: "Chic",
+              youtube: "https://www.youtube.com/results?search_query=Chic+Good+Times",
+              time: "00:54-01:08",
+              reason: "Disco turns funk bass and guitar motion into a dance-floor machine.",
+              nodes: ["funk", "disco", "house"],
+              edges: ["funk->disco", "disco->house"]
+            },
+            {
+              title: "Rapper's Delight",
+              artist: "The Sugarhill Gang",
+              youtube: "https://www.youtube.com/results?search_query=Rapper%27s+Delight+Sugarhill+Gang",
+              time: "00:24-00:38",
+              reason: "The sampling path turns disco/funk loops into a doorway for hip-hop.",
+              nodes: ["disco", "hiphop", "funk"],
+              edges: ["funk->hiphop"]
+            }
+          ]
+        },
+        {
+          id: "history",
+          title: "Round 3: Cultural history and circulation",
+          brief: "Place the song back into cities, media, technology, audiences, and historical circulation.",
+          minutes: "About 5 min",
+          goal: "Prefer public sources, avoid overclaiming uncertain facts, and output playable audio plus an openable script.",
+          refs: [
+            {
+              title: "Living for the City",
+              artist: "Stevie Wonder",
+              youtube: "https://www.youtube.com/results?search_query=Stevie+Wonder+Living+for+the+City",
+              time: "02:05-02:19",
+              reason: "Urban storytelling makes 1970s soul/funk more than dance music: it becomes social record.",
+              nodes: ["soul", "funk", "rnb"],
+              edges: ["rnb->soul", "soul->funk"]
+            },
+            {
+              title: "Zombie",
+              artist: "Fela Kuti",
+              youtube: "https://www.youtube.com/results?search_query=Fela+Kuti+Zombie",
+              time: "01:10-01:24",
+              reason: "Afrobeat shows how funk meets politics, horns, and polyrhythm as it travels.",
+              nodes: ["afrobeat", "funk", "jazz"],
+              edges: ["afrobeat->funk", "jazz->funk"]
+            },
+            {
+              title: "Flash Light",
+              artist: "Parliament",
+              youtube: "https://www.youtube.com/results?search_query=Parliament+Flash+Light",
+              time: "00:42-00:56",
+              reason: "Synth bass pushes funk toward sci-fi, stage spectacle, and futurist imagination.",
+              nodes: ["funk", "electronic", "disco"],
+              edges: ["funk->disco", "electronic->synthpop"]
+            }
+          ]
+        }
+      ];
+
+      const generationStages = [
+        "DeepSeek script",
+        "Role check",
+        "Doubao two-host TTS",
+        "Reference lookup",
+        "Clip edit",
+        "Podcast mix",
+        "Audio export"
+      ];
+
+      const audioManifestUrl = "assets/audio/manifest.json";
+
+      const diveData = {
+        funk: {
+          subtitle: "From the bodily accents of gospel and soul to disco, hip-hop, and global branches.",
+          lineage: [
+            ["Gospel", "Soul"],
+            ["Soul", "Funk"],
+            ["Funk", "Disco"],
+            ["Funk", "Hip-Hop"],
+            ["Funk", "Afrobeat"]
+          ],
+          regions: [
+            ["US Funk", 22, 38],
+            ["Ethiopian Funk", 58, 52],
+            ["Japanese Funk", 72, 30],
+            ["Korean Funk", 78, 42],
+            ["Middle East Funk", 55, 33]
+          ],
+          tracks: ["James Brown - Cold Sweat", "Stevie Wonder - Superstition", "Parliament - Flash Light", "Fela Kuti - Zombie"],
+          artists: ["James Brown", "Sly & The Family Stone", "Stevie Wonder", "Parliament-Funkadelic"]
+        },
+        rock: {
+          subtitle: "From amplified blues to the high-voltage branches of punk, metal, and grunge.",
+          lineage: [
+            ["Blues", "Rock"],
+            ["Rock", "Punk"],
+            ["Rock", "Metal"],
+            ["Punk", "Grunge"],
+            ["Country", "Rock"]
+          ],
+          regions: [
+            ["Memphis", 28, 50],
+            ["London", 47, 34],
+            ["Seattle", 18, 24],
+            ["Birmingham", 50, 46],
+            ["New York", 34, 38]
+          ],
+          tracks: ["Chuck Berry - Johnny B. Goode", "Led Zeppelin - Whole Lotta Love", "Nirvana - Lithium", "The Clash - London Calling"],
+          artists: ["Chuck Berry", "The Beatles", "Led Zeppelin", "Nirvana"]
+        },
+        jazz: {
+          subtitle: "From New Orleans to bebop, fusion, and Latin crossings.",
+          lineage: [
+            ["Blues", "Jazz"],
+            ["Gospel", "Jazz"],
+            ["Jazz", "Latin"],
+            ["Jazz", "Funk"],
+            ["Classical", "Jazz"]
+          ],
+          regions: [
+            ["New Orleans", 34, 54],
+            ["Harlem", 40, 35],
+            ["Havana", 28, 66],
+            ["Paris", 50, 28],
+            ["Tokyo", 76, 42]
+          ],
+          tracks: ["Miles Davis - So What", "John Coltrane - A Love Supreme", "Herbie Hancock - Chameleon", "Dizzy Gillespie - Manteca"],
+          artists: ["Louis Armstrong", "Duke Ellington", "Miles Davis", "Herbie Hancock"]
+        },
+        electronic: {
+          subtitle: "From laboratories, synthesizers, and club systems toward techno, ambient, and synthpop.",
+          lineage: [
+            ["Classical", "Electronic"],
+            ["Electronic", "Ambient"],
+            ["Electronic", "Techno"],
+            ["Electronic", "Synthpop"],
+            ["Disco", "House"]
+          ],
+          regions: [
+            ["Detroit", 32, 42],
+            ["Chicago", 29, 50],
+            ["Berlin", 50, 32],
+            ["London", 47, 38],
+            ["Tokyo", 76, 48]
+          ],
+          tracks: ["Kraftwerk - Trans-Europe Express", "Juan Atkins - Clear", "Brian Eno - 1/1", "Daft Punk - One More Time"],
+          artists: ["Kraftwerk", "Brian Eno", "Juan Atkins", "Daft Punk"]
+        },
+        cpop: {
+          subtitle: "From Hong Kong and Taiwan pop industries, karaoke, film, and television to the shared memory of Chinese-language urban feeling.",
+          lineage: [
+            ["Cantopop", "C-Pop"],
+            ["Mandopop", "C-Pop"],
+            ["C-Pop", "Pop Ballad"],
+            ["C-Pop", "Art Pop"],
+            ["Folk", "Pop Ballad"]
+          ],
+          regions: [
+            ["Hong Kong", 70, 55],
+            ["Taipei", 74, 62],
+            ["Beijing", 66, 42],
+            ["Singapore", 64, 70],
+            ["Shanghai", 72, 48]
+          ],
+          tracks: ["Faye Wong - Red Bean", "Teresa Teng - The Moon Represents My Heart", "Beyond - Boundless Oceans Vast Skies", "Jay Chou - Qing Hua Ci"],
+          artists: ["Faye Wong", "Teresa Teng", "Beyond", "Jay Chou"]
+        },
+        mandopop: {
+          subtitle: "From Mandarin record industries, campus folk, and urban love songs toward cross-regional melodic memory.",
+          lineage: [
+            ["Folk", "Mandopop"],
+            ["Mandopop", "C-Pop"],
+            ["Mandopop", "Pop Ballad"],
+            ["Mandopop", "Art Pop"]
+          ],
+          regions: [
+            ["Taipei", 74, 62],
+            ["Beijing", 66, 42],
+            ["Shanghai", 72, 48],
+            ["Singapore", 64, 70]
+          ],
+          tracks: ["Faye Wong - Red Bean", "Teresa Teng - The Moon Represents My Heart", "Jay Chou - Qing Hua Ci"],
+          artists: ["Faye Wong", "Teresa Teng", "Jay Chou", "Lo Ta-yu"]
+        },
+        cantopop: {
+          subtitle: "A Chinese-language pop branch grown from Hong Kong film, television, radio, and nocturnal city life.",
+          lineage: [
+            ["Cantopop", "C-Pop"],
+            ["Cantopop", "Art Pop"],
+            ["Rock", "Cantopop"],
+            ["Pop Ballad", "Cantopop"]
+          ],
+          regions: [
+            ["Hong Kong", 70, 55],
+            ["Guangzhou", 69, 57],
+            ["Macau", 68, 58],
+            ["Singapore", 64, 70]
+          ],
+          tracks: ["Faye Wong - Fragile Woman", "Beyond - Boundless Oceans Vast Skies", "Leslie Cheung - Monica"],
+          artists: ["Faye Wong", "Beyond", "Leslie Cheung", "Anita Mui"]
+        },
+        artpop: {
+          subtitle: "Pop melody, sound design, persona-driven performance, and experimental texture compressed into mass songs.",
+          lineage: [
+            ["C-Pop", "Art Pop"],
+            ["Synthpop", "Art Pop"],
+            ["Ambient", "Art Pop"],
+            ["Pop Ballad", "Art Pop"]
+          ],
+          regions: [
+            ["Hong Kong", 70, 55],
+            ["London", 47, 34],
+            ["Tokyo", 76, 42],
+            ["New York", 34, 38]
+          ],
+          tracks: ["Faye Wong - Eyes On Me", "Kate Bush - Running Up That Hill", "Bj枚rk - Hyperballad"],
+          artists: ["Faye Wong", "Kate Bush", "Bj枚rk", "David Bowie"]
+        },
+        popballad: {
+          subtitle: "A pop-song grammar that carries private emotion through melody, space, and singable phrases.",
+          lineage: [
+            ["Folk", "Pop Ballad"],
+            ["Mandopop", "Pop Ballad"],
+            ["C-Pop", "Pop Ballad"],
+            ["Soul", "Pop Ballad"]
+          ],
+          regions: [
+            ["Taipei", 74, 62],
+            ["Hong Kong", 70, 55],
+            ["Seoul", 78, 40],
+            ["Los Angeles", 18, 48]
+          ],
+          tracks: ["Faye Wong - Red Bean", "Jacky Cheung - Kiss Goodbye", "Teresa Teng - The Moon Represents My Heart"],
+          artists: ["Faye Wong", "Jacky Cheung", "Teresa Teng", "Adele"]
+        }
+      };
+
+      let width = 0;
+      let height = 0;
+      let dpr = 1;
+      let viewZoom = 1.18;
+      let targetZoom = 1.18;
+      let rotation = { x: -0.12, y: 0.38 };
+      let targetRotation = { x: -0.12, y: 0.38 };
+      let dragging = false;
+      let dragStart = { x: 0, y: 0, rx: 0, ry: 0 };
+      let lastProjected = new Map();
+      let everyNoiseEdges = [];
+      let activeView = "kinship";
+      let selectedSong = null;
+      let highlightedNodes = new Set();
+      let pulseNodes = new Set();
+      let sessionPath = [];
+      let sessionEdges = new Set();
+      let genreNeighborIds = new Map();
+      let spatialNeighborCache = new Map();
+      let references = [];
+      let activeCardId = null;
+      let activeCueKey = "";
+      let activeIntervals = [];
+      let generationTimers = [];
+      let generationRunId = 0;
+      let audioManifestPromise = null;
+      let runtimePackManifest = null;
+      let packState = createInitialPackState();
+      const minViewZoom = 0.65;
+      const maxViewZoom = 18;
+      const visualIntensity = 0.78;
+      const blurScale = 9;
+      const nodeSoftEdgeScale = 1;
+      const litNodeGlowScale = 1.18;
+      const litNodeAlphaScale = 1.45;
+      const dormantNodeAlphaScale = 0.52;
+      const dormantNodeMaxZoomAlphaScale = 1.05;
+      const dormantNodeHex = "#d2d6cf";
+      const dormantNodeCore = "214, 218, 210";
+      const dormantLabelColor = "rgba(202, 209, 220, 0.72)";
+      const glowSpriteCache = new Map();
+
+      function createInitialPackState() {
+        return packTemplates.map((item) => ({
+          ...item,
+          status: "Queued",
+          progress: 0,
+          stageIndex: -1,
+          pipeline: generationStages.map((label) => ({ label, state: "pending" })),
+          audioUrl: "",
+          artifact: null
+        }));
+      }
+
+      function mergeEveryNoiseGenres(items) {
+        const importedById = new Map(items.filter((genre) => genre?.id).map((genre) => [genre.id, genre]));
+        curatedGenres.forEach((genre) => {
+          const source = importedById.get(genre.id);
+          if (!source) return;
+          genre.sourceColor = palette[genre.id] || vividGenreColor(source) || genre.sourceColor;
+          genre.sourceSize = source.sourceSize || genre.sourceSize;
+          genre.sourceRank = source.sourceRank || genre.sourceRank;
+          genre.family = source.family || genre.family;
+          genre.relatedTo = Array.isArray(source.relatedTo) ? source.relatedTo : genre.relatedTo;
+        });
+        const imported = items
+          .filter((genre) => genre?.id && genre?.name && !curatedGenreIds.has(genre.id))
+          .map((genre) => ({
+            id: genre.id,
+            name: genre.name,
+            era: genre.era || "Every Noise",
+            lat: Number(genre.lat) || 0,
+            lon: Number(genre.lon) || 0,
+            region: genre.region || "Every Noise at Once",
+            tags: Array.isArray(genre.tags) ? genre.tags : [],
+            sourceRank: genre.sourceRank || 9999,
+            sourceSize: genre.sourceSize || 100,
+            sourceColor: vividGenreColor(genre),
+            family: genre.family || "",
+            relatedTo: Array.isArray(genre.relatedTo) ? genre.relatedTo : []
+          }));
+        genres = [...curatedGenres, ...imported];
+        genreById = Object.fromEntries(genres.map((genre) => [genre.id, genre]));
+        everyNoiseEdges = buildEveryNoiseEdges(imported);
+        spatialNeighborCache = new Map();
+        genreNeighborIds = buildGenreNeighborIds();
+      }
+
+      function buildEveryNoiseEdges(imported) {
+        const links = new Map();
+        imported.forEach((genre) => {
+          genre.relatedTo.forEach((relatedId) => {
+            const key = [genre.id, relatedId].sort().join("->");
+            if (!links.has(key)) links.set(key, [genre.id, relatedId, "source-neighbor"]);
+          });
+        });
+        return [...links.values()].slice(0, 1100);
+      }
+
+      function buildGenreNeighborIds() {
+        const buckets = new Map();
+        genres.forEach((genre) => buckets.set(genre.id, new Map()));
+
+        const add = (from, to, score = 0.5) => {
+          if (!from || !to || from === to || !genreById[from] || !genreById[to]) return;
+          if (!buckets.has(from)) buckets.set(from, new Map());
+          const bucket = buckets.get(from);
+          bucket.set(to, Math.max(bucket.get(to) || 0, score));
+        };
+
+        edges.forEach(([from, to], index) => {
+          const score = 0.95 - Math.min(0.25, index * 0.004);
+          add(from, to, score);
+          add(to, from, score);
+        });
+
+        everyNoiseEdges.forEach(([from, to]) => {
+          add(from, to, 0.78);
+          add(to, from, 0.78);
+        });
+
+        genres.forEach((genre) => {
+          (genre.relatedTo || []).slice(0, 12).forEach((relatedId, index) => {
+            add(genre.id, relatedId, 0.9 - index * 0.035);
+            add(relatedId, genre.id, 0.72 - index * 0.025);
+          });
+        });
+
+        const neighborIds = new Map();
+        buckets.forEach((bucket, id) => {
+          neighborIds.set(
+            id,
+            [...bucket.entries()]
+              .sort((a, b) => b[1] - a[1])
+              .map(([neighborId, score]) => ({ id: neighborId, score }))
+          );
+        });
+        return neighborIds;
+      }
+
+      async function loadEveryNoiseGenres() {
+        try {
+          const response = await fetch(everyNoiseGenreUrl, { cache: "no-store" });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const data = await response.json();
+          mergeEveryNoiseGenres(data.genres || []);
+          showToast(`Loaded ${data.count || genres.length} Every Noise genre nodes.`);
+        } catch (error) {
+          showToast("Every Noise nodes are not available yet. Keeping the core map.");
+        }
+      }
+
+      function projectNode(genre) {
+        const projected = projectSpherePoint(spherePoint(genre.lat, genre.lon));
+        return {
+          ...projected,
+          size: 4.5 + projected.depth * 6.5
+        };
+      }
+
+      function spherePoint(latValue, lonValue) {
+        const lat = (latValue * Math.PI) / 180;
+        const lon = (lonValue * Math.PI) / 180;
+        return {
+          x: Math.cos(lat) * Math.cos(lon),
+          y: Math.sin(lat),
+          z: Math.cos(lat) * Math.sin(lon)
+        };
+      }
+
+      function projectSpherePoint(point) {
+        const radius = Math.min(width, height) * 0.33 * viewZoom;
+        const { x, y, z } = point;
+
+        const cosy = Math.cos(rotation.y);
+        const siny = Math.sin(rotation.y);
+        const cosx = Math.cos(rotation.x);
+        const sinx = Math.sin(rotation.x);
+        const x1 = x * cosy - z * siny;
+        const z1 = x * siny + z * cosy;
+        const y1 = y * cosx - z1 * sinx;
+        const z2 = y * sinx + z1 * cosx;
+        const depth = (z2 + 1) / 2;
+        const scale = 0.68 + depth * 0.48;
+
+        return {
+          x: width * 0.48 + x1 * radius * scale,
+          y: height * 0.5 + y1 * radius * scale,
+          z: z2,
+          depth
+        };
+      }
+
+      function resizeCanvas() {
+        const rect = canvas.getBoundingClientRect();
+        dpr = Math.min(window.devicePixelRatio || 1, 2);
+        width = rect.width;
+        height = rect.height;
+        canvas.width = Math.floor(width * dpr);
+        canvas.height = Math.floor(height * dpr);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+
+      function drawGlobe(timeMs = 0) {
+        const time = timeMs / 1000;
+        viewZoom += (targetZoom - viewZoom) * 0.12;
+        rotation.x += (targetRotation.x - rotation.x) * 0.06;
+        rotation.y += (targetRotation.y - rotation.y) * 0.06;
+        if (!dragging) targetRotation.y += 0.00078;
+
+        ctx.clearRect(0, 0, width, height);
+
+        const projected = new Map(genres.map((genre) => [genre.id, projectNode(genre)]));
+        lastProjected = projected;
+        drawGlobeAura(time);
+        drawEdges(projected);
+        drawEveryNoiseEdges(projected);
+        drawNodes(projected, time);
+        drawActiveRelationFlows(projected, time);
+        requestAnimationFrame(drawGlobe);
+      }
+
+      function drawGlobeAura(time = 0) {
+        const radius = Math.min(width, height) * 0.42 * viewZoom;
+        if (!Number.isFinite(radius) || radius < 24) return;
+
+        const pulse = 0.5 + Math.sin(time * 1.4) * 0.5;
+        const gradient = ctx.createRadialGradient(
+          width / 2,
+          height / 2,
+          radius * 0.18,
+          width / 2,
+          height / 2,
+          radius * 1.05
+        );
+        gradient.addColorStop(0, `rgba(94, 155, 255, ${scaledAlpha(0.08 + pulse * 0.026)})`);
+        gradient.addColorStop(0.34, `rgba(217, 108, 255, ${scaledAlpha(0.048)})`);
+        gradient.addColorStop(0.58, `rgba(53, 214, 155, ${scaledAlpha(0.044)})`);
+        gradient.addColorStop(0.78, `rgba(255, 159, 69, ${scaledAlpha(0.034)})`);
+        gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+
+        ctx.save();
+        ctx.globalCompositeOperation = "lighter";
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(width / 2, height / 2, radius * 1.05, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      function edgeColor(type, alpha) {
+        if (type === "Historical influence") return `rgba(242, 193, 78, ${alpha})`;
+        if (type === "Fusion" || type === "Sample path") return `rgba(93, 211, 158, ${alpha})`;
+        if (type === "Regional variant") return `rgba(242, 139, 184, ${alpha})`;
+        return `rgba(96, 213, 217, ${alpha})`;
+      }
+
+      function slerpPoint(a, b, t) {
+        const dot = Math.max(-1, Math.min(1, a.x * b.x + a.y * b.y + a.z * b.z));
+        const theta = Math.acos(dot);
+        const sinTheta = Math.sin(theta);
+        if (sinTheta < 0.0001) {
+          const x = a.x + (b.x - a.x) * t;
+          const y = a.y + (b.y - a.y) * t;
+          const z = a.z + (b.z - a.z) * t;
+          const length = Math.hypot(x, y, z) || 1;
+          return { x: x / length, y: y / length, z: z / length };
+        }
+        const aScale = Math.sin((1 - t) * theta) / sinTheta;
+        const bScale = Math.sin(t * theta) / sinTheta;
+        return {
+          x: a.x * aScale + b.x * bScale,
+          y: a.y * aScale + b.y * bScale,
+          z: a.z * aScale + b.z * bScale
+        };
+      }
+
+      function drawSurfaceCurve(fromGenre, toGenre, steps = 22) {
+        const a = spherePoint(fromGenre.lat, fromGenre.lon);
+        const b = spherePoint(toGenre.lat, toGenre.lon);
+        let drawing = false;
+        ctx.beginPath();
+        for (let index = 0; index <= steps; index += 1) {
+          const point = projectSpherePoint(slerpPoint(a, b, index / steps));
+          const visible = point.z > -0.08;
+          if (!visible) {
+            drawing = false;
+            continue;
+          }
+          if (!drawing) {
+            ctx.moveTo(point.x, point.y);
+            drawing = true;
+          } else {
+            ctx.lineTo(point.x, point.y);
+          }
+        }
+        ctx.stroke();
+      }
+
+      function drawEdges(projected) {
+        edges.forEach(([from, to, type]) => {
+          const fromGenre = genreById[from];
+          const toGenre = genreById[to];
+          if (!fromGenre || !toGenre) return;
+          const a = projected.get(from);
+          const b = projected.get(to);
+          if (!a || !b) return;
+          const key = `${from}->${to}`;
+          const reverseKey = `${to}->${from}`;
+          const active = sessionEdges.has(key) || sessionEdges.has(reverseKey) || (highlightedNodes.has(from) && highlightedNodes.has(to));
+          const viewMatch =
+            activeView === "kinship" ||
+            (activeView === "time" && type === "Historical influence") ||
+            (activeView === "geo" && type === "Regional variant");
+          const alpha = active ? 0.78 : viewMatch ? 0.22 : 0.06;
+          ctx.save();
+          ctx.globalCompositeOperation = active ? "lighter" : "source-over";
+          ctx.strokeStyle = edgeColor(type, scaledAlpha(alpha));
+          ctx.lineWidth = active ? 2.2 : 1;
+          drawSurfaceCurve(fromGenre, toGenre, active ? 28 : 18);
+          ctx.restore();
+        });
+      }
+
+      function drawEveryNoiseEdges(projected) {
+        if (!everyNoiseEdges.length) return;
+        everyNoiseEdges.forEach(([from, to, type]) => {
+          const fromGenre = genreById[from];
+          const toGenre = genreById[to];
+          if (!fromGenre || !toGenre) return;
+          const a = projected.get(from);
+          const b = projected.get(to);
+          if (!a || !b) return;
+          const fromTouched = highlightedNodes.has(from) || sessionPath.includes(from);
+          const toTouched = highlightedNodes.has(to) || sessionPath.includes(to);
+          const active = fromTouched && toTouched;
+          const front = Math.max(0, Math.min(1, (a.depth + b.depth) / 2));
+          const alpha = active ? 0.34 : type === "family" ? 0.018 * front : 0.012 * front;
+          if (alpha < 0.012) return;
+          ctx.save();
+          ctx.globalCompositeOperation = active ? "lighter" : "source-over";
+          ctx.strokeStyle = active
+            ? colorToRgba(fromGenre.sourceColor || toGenre.sourceColor || "#8aa7ff", alpha)
+            : colorToRgba(fromGenre.sourceColor || toGenre.sourceColor || "#8aa7ff", alpha);
+          ctx.lineWidth = active ? 1.45 : 0.55;
+          drawSurfaceCurve(fromGenre, toGenre, active ? 20 : 12);
+          ctx.restore();
+        });
+      }
+
+      function activeGenreIds() {
+        return [...new Set([...pulseNodes, ...highlightedNodes, ...sessionPath])].filter((id) => genreById[id]);
+      }
+
+      function hasLitGenres() {
+        return highlightedNodes.size > 0 || pulseNodes.size > 0 || sessionPath.length > 0;
+      }
+
+      function zoomNeighborReveal() {
+        const zoomLevel = Math.log2(Math.max(1, viewZoom));
+        return Math.max(0, Math.min(1, (zoomLevel - 1.15) / 2.2));
+      }
+
+      function spatialNeighborIds(rootId) {
+        const cached = spatialNeighborCache.get(rootId);
+        if (cached) return cached;
+        const root = genreById[rootId];
+        if (!root) return [];
+
+        const rootPoint = spherePoint(root.lat, root.lon);
+        const neighbors = genres
+          .filter((genre) => genre.id !== rootId)
+          .map((genre) => {
+            const point = spherePoint(genre.lat, genre.lon);
+            const dot = rootPoint.x * point.x + rootPoint.y * point.y + rootPoint.z * point.z;
+            return { id: genre.id, dot };
+          })
+          .sort((a, b) => b.dot - a.dot)
+          .slice(0, 14)
+          .map((neighbor, index) => ({ id: neighbor.id, score: 0.68 - index * 0.018 }));
+
+        spatialNeighborCache.set(rootId, neighbors);
+        return neighbors;
+      }
+
+      function litNeighborMap() {
+        const reveal = zoomNeighborReveal();
+        if (reveal <= 0 || !hasLitGenres()) return new Map();
+
+        const roots = activeGenreIds().slice(0, 12);
+        const rootSet = new Set(roots);
+        const perRootLimit = Math.max(3, Math.round(3 + reveal * 7));
+        const totalLimit = Math.round(8 + reveal * 48);
+        const candidates = new Map();
+
+        roots.forEach((rootId, rootIndex) => {
+          const rootWeight = Math.max(0.55, 1 - rootIndex * 0.035);
+          (genreNeighborIds.get(rootId) || []).slice(0, perRootLimit).forEach((neighbor, index) => {
+            if (!genreById[neighbor.id] || rootSet.has(neighbor.id)) return;
+            const rankWeight = Math.max(0.35, 1 - index * 0.075);
+            const score = neighbor.score * rootWeight * rankWeight;
+            const current = candidates.get(neighbor.id);
+            if (!current || score > current.score) candidates.set(neighbor.id, { score, rootId });
+          });
+
+          spatialNeighborIds(rootId).slice(0, Math.max(3, Math.round(3 + reveal * 6))).forEach((neighbor, index) => {
+            if (!genreById[neighbor.id] || rootSet.has(neighbor.id)) return;
+            const rankWeight = Math.max(0.45, 1 - index * 0.065);
+            const score = neighbor.score * rootWeight * rankWeight;
+            const current = candidates.get(neighbor.id);
+            if (!current || score > current.score) candidates.set(neighbor.id, { score, rootId });
+          });
+        });
+
+        return new Map(
+          [...candidates.entries()]
+            .sort((a, b) => b[1].score - a[1].score)
+            .slice(0, totalLimit)
+            .map(([id, info], index) => {
+              const rankFade = Math.max(0.55, 1 - index / Math.max(1, totalLimit) * 0.5);
+              const glowAlpha = reveal * (0.12 + info.score * 0.18) * rankFade;
+              const labelAlpha = reveal > 0.1 ? reveal * (0.32 + info.score * 0.64) * rankFade : 0;
+              return [id, { ...info, glowAlpha, labelAlpha }];
+            })
+        );
+      }
+
+      function addFlowEdge(edgesMap, from, to, kind = "spatial", priority = 5) {
+        if (!from || !to || from === to || !genreById[from] || !genreById[to]) return;
+        const key = [from, to].sort().join("->");
+        const current = edgesMap.get(key);
+        if (!current || priority < current.priority) edgesMap.set(key, { from, to, kind, priority, key });
+      }
+
+      function activeFlowEdges() {
+        const activeIds = activeGenreIds().slice(0, 18);
+        if (!activeIds.length) return [];
+        const activeSet = new Set(activeIds);
+        const flowEdges = new Map();
+
+        edges.forEach(([from, to, type]) => {
+          if (activeSet.has(from) && activeSet.has(to)) addFlowEdge(flowEdges, from, to, type, 1);
+        });
+
+        everyNoiseEdges.forEach(([from, to]) => {
+          if (activeSet.has(from) && activeSet.has(to)) addFlowEdge(flowEdges, from, to, "source-neighbor", 2);
+        });
+
+        activeIds.forEach((id) => {
+          const genre = genreById[id];
+          (genre.relatedTo || []).slice(0, 3).forEach((relatedId, index) => {
+            addFlowEdge(flowEdges, id, relatedId, "spatial", 3 + index * 0.05);
+          });
+        });
+
+        for (let i = 0; i < activeIds.length; i += 1) {
+          const from = activeIds[i];
+          const fromPoint = spherePoint(genreById[from].lat, genreById[from].lon);
+          const candidates = activeIds
+            .slice(i + 1)
+            .map((to) => {
+              const toPoint = spherePoint(genreById[to].lat, genreById[to].lon);
+              const dot = fromPoint.x * toPoint.x + fromPoint.y * toPoint.y + fromPoint.z * toPoint.z;
+              return { to, distance: Math.acos(Math.max(-1, Math.min(1, dot))) };
+            })
+            .sort((a, b) => a.distance - b.distance)
+            .slice(0, 2);
+          candidates.forEach(({ to }, index) => addFlowEdge(flowEdges, from, to, "active-neighbor", 4 + index * 0.1));
+        }
+
+        return [...flowEdges.values()].sort((a, b) => a.priority - b.priority).slice(0, 24);
+      }
+
+      function surfacePointAt(fromGenre, toGenre, t) {
+        const a = spherePoint(fromGenre.lat, fromGenre.lon);
+        const b = spherePoint(toGenre.lat, toGenre.lon);
+        return projectSpherePoint(slerpPoint(a, b, t));
+      }
+
+      function activeFlowColor(fromGenre, toGenre, flow, index) {
+        if (flow.kind === "Historical influence") return "#f5db91";
+        if (flow.kind === "Regional variant") return "#f28bb8";
+        if (flow.kind === "Fusion" || flow.kind === "Sample path") return "#baf58f";
+        const colors = [fromGenre.sourceColor, toGenre.sourceColor, "#8aa7ff", "#baf58f", "#f5db91"].filter(Boolean);
+        return colors[index % colors.length] || "#8aa7ff";
+      }
+
+      function drawFlowDot(point, color, radius, alpha) {
+        drawGlowSprite(point.x, point.y, Math.max(2, radius * 2.2), color, alpha);
+      }
+
+      function normalizeHex(hex = "#d2d6cf") {
+        const fallback = "d2d6cf";
+        let cleaned = String(hex || "").trim().replace("#", "");
+        if (cleaned.length === 3) cleaned = cleaned.split("").map((char) => char + char).join("");
+        return /^[0-9a-fA-F]{6}$/.test(cleaned) ? cleaned.toLowerCase() : fallback;
+      }
+
+      function hexToRgb(hex = "#d2d6cf") {
+        const value = Number.parseInt(normalizeHex(hex), 16);
+        return {
+          r: (value >> 16) & 255,
+          g: (value >> 8) & 255,
+          b: value & 255
+        };
+      }
+
+      function rgbToHex(r, g, b) {
+        return [r, g, b]
+          .map((channel) => Math.max(0, Math.min(255, Math.round(channel))).toString(16).padStart(2, "0"))
+          .join("");
+      }
+
+      function vividGenreColor(genre = {}) {
+        if (palette[genre.id]) return palette[genre.id];
+        const colorKey = `${genre.family || "genre"}:${genre.id || genre.name || ""}`;
+        const paletteIndex = Math.floor(hashUnit(colorKey) * cosmicPalette.length) % cosmicPalette.length;
+        const base = cosmicPalette[paletteIndex];
+        const rgb = hexToRgb(base);
+        const max = Math.max(rgb.r, rgb.g, rgb.b);
+        const min = Math.min(rgb.r, rgb.g, rgb.b);
+        const saturation = max === 0 ? 0 : (max - min) / max;
+        const luminance = rgb.r * 0.2126 + rgb.g * 0.7152 + rgb.b * 0.0722;
+
+        if (luminance < 92 || saturation < 0.38) {
+          return cosmicPalette[(paletteIndex + 3) % cosmicPalette.length];
+        }
+
+        const lift = 1.22;
+        const glow = 34;
+        return `#${rgbToHex(rgb.r * lift + glow, rgb.g * lift + glow, rgb.b * lift + glow)}`;
+      }
+
+      function quantizedHex(hex = "#d2d6cf") {
+        const value = Number.parseInt(normalizeHex(hex), 16);
+        const round = (channel) => Math.max(0, Math.min(255, Math.round(channel / 32) * 32));
+        const r = round((value >> 16) & 255);
+        const g = round((value >> 8) & 255);
+        const b = round(value & 255);
+        return [r, g, b].map((channel) => channel.toString(16).padStart(2, "0")).join("");
+      }
+
+      function getGlowSprite(hex = "#d2d6cf") {
+        const key = quantizedHex(hex);
+        const cached = glowSpriteCache.get(key);
+        if (cached) return cached;
+
+        const value = Number.parseInt(key, 16);
+        const r = (value >> 16) & 255;
+        const g = (value >> 8) & 255;
+        const b = value & 255;
+        const sprite = document.createElement("canvas");
+        const spriteSize = 72;
+        sprite.width = spriteSize;
+        sprite.height = spriteSize;
+        const spriteCtx = sprite.getContext("2d");
+        const center = spriteSize / 2;
+        const gradient = spriteCtx.createRadialGradient(center, center, 0, center, center, center);
+        gradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, 1)`);
+        gradient.addColorStop(0.42, `rgba(${r}, ${g}, ${b}, 0.92)`);
+        gradient.addColorStop(0.72, `rgba(${r}, ${g}, ${b}, 0.18)`);
+        gradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+        spriteCtx.fillStyle = gradient;
+        spriteCtx.fillRect(0, 0, spriteSize, spriteSize);
+        glowSpriteCache.set(key, sprite);
+        return sprite;
+      }
+
+      function drawGlowSprite(x, y, radius, hex, alpha) {
+        const sprite = getGlowSprite(hex);
+        const size = radius * 2;
+        ctx.globalAlpha = scaledAlpha(alpha);
+        ctx.drawImage(sprite, x - radius, y - radius, size, size);
+        ctx.globalAlpha = 1;
+      }
+
+      function drawActiveRelationFlows(projected, time) {
+        const flows = activeFlowEdges();
+        if (!flows.length) return;
+        ctx.save();
+        ctx.globalCompositeOperation = "lighter";
+
+        flows.forEach((flow, index) => {
+          const fromGenre = genreById[flow.from];
+          const toGenre = genreById[flow.to];
+          const a = projected.get(flow.from);
+          const b = projected.get(flow.to);
+          if (!fromGenre || !toGenre || !a || !b) return;
+          const front = Math.max(0, Math.min(1, (a.depth + b.depth) / 2));
+          if (front < 0.06) return;
+
+          const color = activeFlowColor(fromGenre, toGenre, flow, index);
+          ctx.strokeStyle = colorToRgba(color, 0.2 + front * 0.34);
+          ctx.lineWidth = 1.15 + front * 1.05;
+          drawSurfaceCurve(fromGenre, toGenre, 26);
+
+          const seed = hashUnit(flow.key);
+          const speed = 0.16 + seed * 0.2;
+          const t = (time * speed + seed) % 1;
+          const dot = surfacePointAt(fromGenre, toGenre, t);
+          if (dot.z > -0.08) drawFlowDot(dot, color, 1.6 + front * 2.1, 0.82);
+
+          const trailing = surfacePointAt(fromGenre, toGenre, (t + 0.48) % 1);
+          if (trailing.z > -0.08) drawFlowDot(trailing, color, 1.05 + front * 1.35, 0.5);
+        });
+
+        ctx.restore();
+      }
+
+      function drawNodes(projected, time = 0) {
+        const litMode = hasLitGenres();
+        const litNeighbors = litNeighborMap();
+        const labels = [];
+
+        genres.forEach((genre) => {
+          const p = projected.get(genre.id);
+          if (!p) return;
+          const onScreen = p.x > -110 && p.x < width + 110 && p.y > -110 && p.y < height + 110;
+          if (!onScreen || p.depth < 0.02) return;
+
+          const active = highlightedNodes.has(genre.id) || pulseNodes.has(genre.id);
+          const visited = sessionPath.includes(genre.id);
+          const touched = active || visited;
+          const neighborInfo = !touched ? litNeighbors.get(genre.id) : null;
+          const litHex = genre.sourceColor || palette[genre.id] || "#d2d6cf";
+          const seed = hashUnit(genre.id);
+          const coreNode = curatedGenreIds.has(genre.id) && !genre.sourceRank;
+          const importedBaseSize = Math.max(0.62, Math.min(2.2, p.size * ((genre.sourceSize || 100) / 540)));
+          const idleCoreSize = Math.max(0.78, Math.min(1.6, p.size * 0.18));
+          const baseSize = coreNode ? (touched ? p.size : idleCoreSize) : importedBaseSize;
+          const nodeSize = active ? Math.max(baseSize * 1.45, p.size * 1.08) : visited ? Math.max(baseSize * 1.25, p.size * 0.66) : baseSize;
+
+          ctx.save();
+          ctx.globalCompositeOperation = "lighter";
+
+          if (active) {
+            const shimmer = 0.5 + Math.sin(time * 4.2 + seed * Math.PI * 2) * 0.5;
+            const flicker = 0.5 + Math.sin(time * 7.4 + seed * 9.7) * 0.5;
+            const accent = ["#8aa7ff", "#baf58f", "#f5db91", "#f28bb8"][Math.floor(seed * 4) % 4];
+            const glowRadius = Math.max(nodeSize * 3.8, p.size * 1.18) * nodeSoftEdgeScale * litNodeGlowScale * (1 + shimmer * 0.08);
+            drawGlowSprite(p.x, p.y, glowRadius, litHex, Math.min(1, (0.4 + shimmer * 0.14) * litNodeAlphaScale));
+            drawGlowSprite(p.x, p.y, glowRadius * 0.66, accent, Math.min(1, (0.32 + flicker * 0.12) * litNodeAlphaScale));
+            drawNodeCore(p.x, p.y, Math.max(1.8, nodeSize * 0.82), litHex, 0.92);
+          } else if (visited) {
+            const glowRadius = Math.max(nodeSize * 3.2, p.size * 0.94) * nodeSoftEdgeScale;
+            drawGlowSprite(p.x, p.y, glowRadius, litHex, 0.5);
+            drawNodeCore(p.x, p.y, Math.max(1.35, nodeSize * 0.72), litHex, 0.7);
+          } else {
+            const zoomLift = dormantAlphaScaleForZoom();
+            const front = Math.max(0, Math.min(1, p.depth));
+            const neighborAlpha = neighborInfo ? Math.min(0.42, neighborInfo.glowAlpha) : 0;
+            const nodeRadius = Math.max(nodeSize * 2.6, 1.6 + front * 2.4) * nodeSoftEdgeScale;
+            const baseAlpha = (0.18 + front * 0.14) * zoomLift;
+            drawGlowSprite(p.x, p.y, nodeRadius, litHex, Math.max(baseAlpha, neighborAlpha));
+            drawDormantCore(p.x, p.y, Math.max(0.55, nodeSize * 0.46), front, neighborInfo, litHex);
+          }
+
+          ctx.restore();
+
+          const label = genreLabelCandidate(genre, p, {
+            active,
+            visited,
+            touched,
+            neighborInfo,
+            litMode,
+            nodeSize
+          });
+          if (label) labels.push(label);
+        });
+
+        drawGenreLabels(labels);
+      }
+
+      function drawDormantCore(x, y, radius, front, neighborInfo, hex = "#d2d6cf") {
+        const alpha = Math.max(0.1 + front * 0.2, neighborInfo ? 0.32 : 0);
+        ctx.save();
+        ctx.globalCompositeOperation = "source-over";
+        ctx.fillStyle = colorToRgba(hex, Math.max(alpha, 0.22));
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      function drawNodeCore(x, y, radius, hex, alpha) {
+        ctx.save();
+        ctx.globalCompositeOperation = "lighter";
+        ctx.fillStyle = colorToRgba(hex, alpha);
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      function genreLabelCandidate(genre, p, state) {
+        const zoomLevel = Math.log2(Math.max(1, viewZoom));
+        const front = Math.max(0, Math.min(1, p.depth));
+        const sourceRank = Number(genre.sourceRank || 9999);
+        const major = initialMajorGenreIds.has(genre.id);
+        const rootLabel = state.touched;
+        const neighborLabel = state.neighborInfo && p.depth > -0.02 && zoomLevel > 0.75;
+        const zoomLabel =
+          p.depth > 0.16 &&
+          zoomLevel > 1.15 &&
+          (sourceRank <= 260 + zoomLevel * 760 || (zoomLevel > 3.05 && sourceRank <= 5200));
+        const landmarkLabel = !state.litMode && major && p.depth > 0.34;
+
+        if (!rootLabel && !neighborLabel && !zoomLabel && !landmarkLabel) return null;
+
+        const rankBoost = Math.max(0, 1 - Math.min(sourceRank, 6200) / 6200);
+        const zoomAlpha = Math.max(0, Math.min(1, (zoomLevel - 1.05) / 2.6));
+        const alpha = rootLabel
+          ? 1
+          : neighborLabel
+            ? Math.min(0.84, state.neighborInfo.labelAlpha + 0.18)
+            : landmarkLabel
+              ? 0.58
+              : Math.min(0.76, 0.24 + zoomAlpha * 0.42 + rankBoost * 0.18);
+        const fontSize = rootLabel ? (state.active ? 18 : 15) : neighborLabel ? 12 : zoomLevel > 3.2 ? 11 : 10;
+        return {
+          alpha,
+          color: rootLabel ? "#fffaf0" : neighborLabel ? "rgba(248,244,232,0.78)" : dormantLabelColor,
+          fontSize,
+          name: genre.name,
+          priority: rootLabel ? 0 : neighborLabel ? 1 : landmarkLabel ? 2 : 3 + sourceRank / 7000 - front,
+          weight: rootLabel ? 760 : 620,
+          x: p.x,
+          y: p.y - Math.max(state.nodeSize + 8, 10)
+        };
+      }
+
+      function drawGenreLabels(labels) {
+        if (!labels.length) return;
+        const placed = [];
+        const maxLabels = Math.round(10 + Math.log2(Math.max(1, viewZoom)) * 42);
+
+        labels
+          .sort((a, b) => a.priority - b.priority)
+          .slice(0, Math.max(12, maxLabels))
+          .forEach((label) => {
+            ctx.save();
+            ctx.font = `${label.weight} ${label.fontSize}px Inter, system-ui, sans-serif`;
+            const textWidth = ctx.measureText(label.name).width;
+            const box = {
+              x: label.x - textWidth / 2 - 4,
+              y: label.y - label.fontSize,
+              w: textWidth + 8,
+              h: label.fontSize + 4
+            };
+            const collides = placed.some((item) => boxesOverlap(box, item));
+            if (!collides) {
+              placed.push(box);
+              ctx.globalAlpha = label.alpha;
+              ctx.fillStyle = label.color;
+              ctx.textAlign = "center";
+              ctx.textBaseline = "alphabetic";
+              ctx.fillText(label.name, label.x, label.y);
+            }
+            ctx.restore();
+          });
+      }
+
+      function boxesOverlap(a, b) {
+        return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+      }
+
+      function hashUnit(value = "") {
+        let hash = 2166136261;
+        const text = String(value);
+        for (let index = 0; index < text.length; index += 1) {
+          hash ^= text.charCodeAt(index);
+          hash = Math.imul(hash, 16777619);
+        }
+        return (hash >>> 0) / 4294967295;
+      }
+
+      function scaledAlpha(alpha = 1) {
+        const zoomBoost = 1 + Math.min(3, Math.max(0, Math.log2(Math.max(1, viewZoom)) * 0.62));
+        return Math.max(0, Math.min(1, alpha * visualIntensity * zoomBoost));
+      }
+
+      function dormantAlphaScaleForZoom() {
+        const ramp = Math.max(0, Math.min(1, (viewZoom - minViewZoom) / (maxViewZoom - minViewZoom)));
+        return dormantNodeAlphaScale + (dormantNodeMaxZoomAlphaScale - dormantNodeAlphaScale) * ramp;
+      }
+
+      function colorToRgba(hex = "#d2d6cf", alpha = 1) {
+        const cleaned = normalizeHex(hex);
+        const value = Number.parseInt(cleaned, 16);
+        const r = (value >> 16) & 255;
+        const g = (value >> 8) & 255;
+        const b = value & 255;
+        return `rgba(${r}, ${g}, ${b}, ${scaledAlpha(alpha)})`;
+      }
+
+      function makeChips(ids, tone = "") {
+        return ids
+          .map((id) => {
+            const label = genreById[id]?.name || id;
+            return `<span class="chip ${tone}">${label}</span>`;
+          })
+          .join("");
+      }
+
+      function selectSphereGenres(ids = []) {
+        window.musicSphereViz?.select(ids);
+        window.dispatchEvent(new CustomEvent("musicSphere:select", { detail: { ids } }));
+      }
+
+      function showToast(message) {
+        toast.textContent = message;
+        toast.classList.add("show");
+        clearTimeout(showToast.timer);
+        showToast.timer = setTimeout(() => toast.classList.remove("show"), 2600);
+      }
+
+      async function performSearch(query) {
+        const normalized = query.trim().toLowerCase();
+        candidateList.innerHTML = `<div class="candidate"><div><strong>Searching YouTube</strong><span>${query}</span></div></div>`;
+        candidateList.classList.add("show");
+
+        try {
+          const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+          if (!response.ok) {
+            let detail = `Search failed: ${response.status}`;
+            try {
+              const errorData = await response.json();
+              if (errorData?.error) detail = errorData.error;
+            } catch {
+              // Keep status fallback.
+            }
+            throw new Error(detail);
+          }
+          const data = await response.json();
+          const remoteResults = data.results.map((item) => ({ ...item, isRemote: true }));
+          renderCandidates(remoteResults);
+          if (remoteResults[0]) bindSong(remoteResults[0]);
+        } catch (error) {
+          const results = searchCatalog
+            .map((item) => {
+              const haystack = `${item.title} ${item.artist}`.toLowerCase();
+              const score = haystack.includes(normalized) ? 2 : item.genres.some((genre) => genre.includes(normalized)) ? 1 : 0;
+              return { item, score };
+            })
+            .sort((a, b) => b.score - a.score)
+            .map(({ item }) => item)
+            .slice(0, 3);
+          renderCandidates(results);
+          showToast(`Backend search failed: ${error.message}`);
+        }
+      }
+
+      function renderCandidates(results) {
+        candidateList.innerHTML = results
+          .map(
+            (candidate, index) => `
+              <div class="candidate ${candidate.isRemote ? "" : "demo"}">
+                <div>
+                  <strong>${candidate.title} - ${candidate.artist}</strong>
+                  <span>${candidate.year || candidate.durationLabel || "YouTube"} / ${candidate.source} / ${candidate.isRemote ? "ready for radio generation" : "demo data, map preview only"} / match ${candidate.confidence}</span>
+                </div>
+                <button type="button" data-confirm="${index}">${candidate.isRemote ? "Confirm" : "Preview"}</button>
+              </div>
+            `
+          )
+          .join("");
+        candidateList.classList.add("show");
+        candidateList.querySelectorAll("[data-confirm]").forEach((button) => {
+          button.addEventListener("click", () => {
+            const candidate = results[Number(button.dataset.confirm)];
+            bindSong(candidate);
+          });
+        });
+      }
+
+      async function bindSong(song) {
+        if (song.isRemote) {
+          candidateList.innerHTML = `
+            <div class="candidate">
+              <div>
+                <strong>Matching metadata and preparing radio workspace</strong>
+                <span>${song.title} / ${song.artist}</span>
+              </div>
+            </div>
+          `;
+          try {
+            const response = await fetch("/api/confirm", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                id: song.id,
+                url: song.url,
+                title: song.title,
+                artist: song.artist || song.uploader,
+                uploader: song.uploader,
+                duration: song.duration,
+                durationLabel: song.durationLabel,
+                thumbnail: song.thumbnail
+              })
+            });
+            if (!response.ok) {
+              let detail = `Confirm failed: ${response.status}`;
+              try {
+                const errorData = await response.json();
+                if (errorData?.error) detail = errorData.error;
+              } catch {
+                // Keep status fallback.
+              }
+              throw new Error(detail);
+            }
+            const data = await response.json();
+            song = data.song;
+          } catch (error) {
+            showToast(`Confirmation failed: ${error.message}`);
+            return;
+          }
+        }
+
+        selectedSong = song;
+        app.classList.add("sidebar-open");
+        window.setTimeout(resizeCanvas, 180);
+        runtimePackManifest = null;
+        highlightedNodes = new Set(song.genres);
+        pulseNodes = new Set();
+        sessionPath = addUnique(sessionPath, song.genres);
+        updateSessionEdges(song.genres);
+        selectSphereGenres(song.genres);
+        identityState.textContent = "Bound";
+        identityState.style.background = "var(--green)";
+        focusLabel.textContent = `${song.title} / ${song.artist}`;
+        focusChips.innerHTML = makeChips(song.genres, "gold");
+        updateSessionChips();
+        candidateList.innerHTML = "";
+        candidateList.classList.remove("show");
+        renderSongPanel();
+        resetPack();
+        const canGenerate = Boolean(song.sessionId);
+        generateScript.disabled = !canGenerate;
+        generatePack.disabled = !canGenerate;
+        nextPrompt.textContent = canGenerate
+          ? "Generate the three-round two-host script first, then generate Bean TTS audio after review."
+          : "This is a demo candidate without a backend sessionId. Confirm a real search result before generating script and audio.";
+        nextActions.innerHTML = "";
+        showToast(canGenerate ? "Song confirmed. You can generate the three-round AI radio guide." : "Demo song previewed. Real radio generation needs backend confirmation.");
+      }
+
+      function renderSongPanel() {
+        songPanel.innerHTML = `
+          <p class="song-title">${selectedSong.title}</p>
+          <p class="song-meta">${selectedSong.artist} / ${selectedSong.year} / ${selectedSong.region}</p>
+          <div class="chips">${makeChips(selectedSong.genres, "green")}</div>
+          <div class="chips">
+            <span class="chip">BPM ${selectedSong.bpm}</span>
+            <span class="chip">${selectedSong.key}</span>
+            <span class="chip">videoId ${selectedSong.videoId}</span>
+          </div>
+          <p class="empty-note" style="margin-top: 12px">${selectedSong.summary}</p>
+          <div class="song-actions">
+            <button type="button" id="focusSong">Focus View</button>
+            <button type="button" id="openYoutube">YouTube</button>
+          </div>
+        `;
+        document.querySelector("#focusSong").addEventListener("click", () => focusOnGenres(selectedSong.genres));
+        document.querySelector("#openYoutube").addEventListener("click", () => {
+          window.open(`https://www.youtube.com/watch?v=${selectedSong.videoId}`, "_blank", "noopener");
+        });
+      }
+
+      function focusOnGenres(ids) {
+        selectSphereGenres(ids);
+        const first = genreById[ids[0]];
+        if (!first) return;
+        targetRotation.x = -first.lat * Math.PI / 360;
+        targetRotation.y = -first.lon * Math.PI / 180 + 0.3;
+        showToast(`View moved toward ${ids.map((id) => genreById[id]?.name || id).join(" / ")}`);
+      }
+
+      function resetPack() {
+        generationRunId += 1;
+        clearPlayback();
+        clearGenerationTimers();
+        packState.forEach((card) => {
+          if (card.audioUrl?.startsWith("blob:")) URL.revokeObjectURL(card.audioUrl);
+        });
+        references = [];
+        activeCardId = null;
+        activeCueKey = "";
+        packState = createInitialPackState();
+        renderPack();
+        renderReferences();
+      }
+
+      function renderPack() {
+        packList.innerHTML = packState
+          .map((card, index) => {
+            const ready = card.status === "Playable";
+            const scripted = card.status === "Script Ready";
+            const generating = card.status === "Generating";
+            const active = activeCardId === card.id;
+            const duration = card.artifact?.durationLabel || card.minutes;
+            const playText = ready ? `${active ? "Pause" : "Play"} / ${duration}` : scripted ? "Generate audio first" : generating ? "Generating" : "Waiting for audio";
+            const scriptText = card.artifact ? "Open script" : generating ? "Generating" : "Waiting for script";
+            const downloadText = ready ? "Download audio" : "Waiting export";
+            return `
+              <article class="listen-card ${ready || scripted ? "ready" : ""} ${generating ? "generating" : ""} ${active ? "active" : ""}" data-card="${card.id}">
+                <div class="round-index">${String(index + 1).padStart(2, "0")}</div>
+                <div class="round-body">
+                <div class="card-top">
+                  <div>
+                    <h3>${card.title}</h3>
+                    <p>${card.brief}</p>
+                  </div>
+                  <span class="state ${stateClass(card.status)}">${statusLabel(card.status)}</span>
+                </div>
+                <div class="round-meta">
+                  <span>${duration}</span>
+                  <span>Female expert + male host</span>
+                  <span>Bilingual music guide</span>
+                </div>
+                <div class="pipeline" aria-label="audio generation pipeline">
+                  ${card.pipeline.map((stage) => `<span class="pipe ${stage.state}">${stage.label}</span>`).join("")}
+                </div>
+                <div class="note-stream" aria-hidden="true"><span>note</span><span>beat</span><span>cue</span><span>wave</span></div>
+                <div class="wave" aria-hidden="true">${makeWave(card.id)}</div>
+                <div class="progress"><span style="width:${card.progress}%"></span></div>
+                ${
+                  card.audioUrl
+                    ? `<audio class="audio-player" controls preload="metadata" src="${card.audioUrl}" data-audio="${card.id}"></audio>`
+                    : `<div class="artifact-note">${card.artifact?.outline || card.goal || (ready ? "Audio file exported" : "Waiting for DeepSeek script and Bean TTS export")}</div>`
+                }
+                <div class="card-actions">
+                  <button type="button" data-play="${card.id}" ${ready ? "" : "disabled"}>${active ? "Pause" : "Play"} / ${duration}</button>
+                  <button type="button" data-script="${card.id}" ${card.artifact ? "" : "disabled"}>Script</button>
+                  <button type="button" data-download="${card.id}" ${ready ? "" : "disabled"}>Download</button>
+                </div>
+              </article>
+            `;
+          })
+          .join("");
+
+        packList.querySelectorAll("audio[data-audio]").forEach((audio) => {
+          const id = audio.dataset.audio;
+          audio.addEventListener("play", () => handleAudioPlay(id, audio));
+          audio.addEventListener("pause", () => handleAudioPause(id, audio));
+          audio.addEventListener("timeupdate", () => syncAudioPlayback(id, audio));
+          audio.addEventListener("ended", () => finishAudioPlayback(id, audio));
+        });
+        updateRoundActionLabels();
+      }
+
+      function updateRoundActionLabels() {
+        packState.forEach((card) => {
+          const node = packList.querySelector(`[data-card="${card.id}"]`);
+          if (!node) return;
+          const play = node.querySelector("[data-play]");
+          const script = node.querySelector("[data-script]");
+          const download = node.querySelector("[data-download]");
+          const state = node.querySelector(".state");
+          const duration = card.artifact?.durationLabel || card.minutes;
+          if (state) {
+            state.textContent =
+              card.status === "Queued" ? "Waiting" :
+              card.status === "Script Ready" ? "Script ready" :
+              card.status === "Playable" ? "Playable" :
+              card.status === "Generating" ? "Generating" :
+              card.status === "Failed" ? "Failed" :
+              card.status;
+          }
+          if (play) {
+            if (card.status === "Playable") {
+              play.textContent = `${activeCardId === card.id ? "Pause" : "Play"} / ${duration}`;
+            } else if (card.status === "Script Ready") {
+              play.textContent = "Generate audio first";
+            } else if (card.status === "Generating") {
+              play.textContent = "Generating";
+            } else {
+              play.textContent = "Waiting for audio";
+            }
+          }
+          if (script) script.textContent = card.artifact ? "Open script" : card.status === "Generating" ? "Generating" : "Waiting for script";
+          if (download) download.textContent = card.status === "Playable" ? "Download audio" : "Waiting export";
+        });
+      }
+
+      function makeWave(id) {
+        const seed = id.charCodeAt(0) + id.length * 9;
+        return Array.from({ length: 28 }, (_, index) => {
+          const h = 7 + ((Math.sin(index * 1.7 + seed) + 1) * 13) + ((index * seed) % 11);
+          return `<span class="bar" style="height:${Math.round(h)}px; --i:${index}"></span>`;
+        }).join("");
+      }
+
+      function statusLabel(status) {
+        if (status === "Queued") return "Queued";
+        if (status === "Generating") return "Generating";
+        if (status === "Script Ready") return "Script Ready";
+        if (status === "Playable") return "Playable";
+        if (status === "Failed") return "Failed";
+        return status;
+      }
+
+      function artifactMessage(card, ready, scripted, generating) {
+        if (card.artifact?.outline) return card.artifact.outline;
+        if (generating) return "Generating the two-host dialogue, live sampling plan, and audio assets. Please wait.";
+        if (scripted) return "Script generated. Open it to review, then generate audio.";
+        if (ready) return "Audio exported.";
+        return card.goal || "Generate the script first, then continue to TTS, live sampling, and mixing.";
+      }
+
+      function stateClass(status) {
+        if (status === "Playable" || status === "Script Ready") return "ready";
+        if (status === "Generating") return "generating";
+        if (status === "Failed") return "failed";
+        return "";
+      }
+
+      function generateListeningPack() {
+        if (!selectedSong) return;
+        if (selectedSong.sessionId) {
+          generateRuntimeListeningPack();
+          return;
+        }
+        showToast("Confirm a real search result first. Radio generation requires a backend sessionId.");
+      }
+
+      async function generateListeningScript() {
+        if (!selectedSong) return;
+        if (!selectedSong.sessionId) {
+          showToast("Confirm a real search result first. DeepSeek script generation requires a backend sessionId.");
+          return;
+        }
+        try {
+          const healthResponse = await fetch("/api/health", { cache: "no-store" });
+          const health = healthResponse.ok ? await healthResponse.json() : null;
+          if (health?.missing?.includes("DEEPSEEK_API_KEY")) {
+            throw new Error(`missing DEEPSEEK_API_KEY${health.hasEnvFile ? "" : " (.env not found)"}`);
+          }
+        } catch (error) {
+          showToast(`Script generation blocked: ${error.message}`);
+          return;
+        }
+
+        resetPack();
+        const runId = generationRunId;
+        generateScript.disabled = true;
+        generatePack.disabled = true;
+        packState = packState.map((card) => ({
+          ...card,
+          status: "Generating",
+          progress: 18,
+          pipeline: generationStages.map((label, index) => ({
+            label,
+            state: index === 0 ? "active" : "pending"
+          }))
+        }));
+        renderPack();
+
+        try {
+          const response = await fetch("/api/script", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ sessionId: selectedSong.sessionId, forceFresh: true })
+          });
+          if (!response.ok) {
+            let detail = `Script failed: ${response.status}`;
+            try {
+              const errorData = await response.json();
+              if (errorData?.error) detail = errorData.error;
+            } catch {
+              // Keep HTTP status fallback.
+            }
+            throw new Error(detail);
+          }
+          const data = await response.json();
+          if (runId !== generationRunId) return;
+          runtimePackManifest = data.pack;
+          packState = packState.map((card) => {
+            const guide = runtimePackManifest.guides[card.id];
+            const artifact = manifestGuideToArtifact(guide, card);
+            return {
+              ...card,
+              status: "Script Ready",
+              progress: 100,
+              pipeline: generationStages.map((label, index) => ({
+                label,
+                state: index <= 1 ? "done" : "pending"
+              })),
+              artifact,
+              audioUrl: ""
+            };
+          });
+          renderPack();
+          scrollToPack();
+          showToast("Three-round two-host script generated. You can open the script or continue generating audio.");
+        } catch (error) {
+          packState = packState.map((card) => ({ ...card, status: "Failed" }));
+          renderPack();
+          showToast(`Script generation failed: ${error.message}`);
+        } finally {
+          generateScript.disabled = false;
+          generatePack.disabled = false;
+        }
+      }
+
+      async function generateRuntimeListeningPack() {
+        try {
+          const healthResponse = await fetch("/api/health", { cache: "no-store" });
+          const health = healthResponse.ok ? await healthResponse.json() : null;
+          if (health && !health.ok) {
+            throw new Error(`TTS config incomplete for ${health.engine}: missing ${health.missing.join(", ")}${health.hasEnvFile ? "" : " (.env not found)"}`);
+          }
+        } catch (error) {
+          showToast(`Guide generation blocked: ${error.message}`);
+          return;
+        }
+        resetPack();
+        const runId = generationRunId;
+        generatePack.disabled = true;
+        packState = packState.map((card) => ({
+          ...card,
+          status: "Generating",
+          progress: 8,
+          stageIndex: 0,
+          pipeline: generationStages.map((label, index) => ({
+            label,
+            state: index === 0 ? "active" : "pending"
+          }))
+        }));
+        renderPack();
+
+        let stage = 0;
+        const timer = window.setInterval(() => {
+          if (runId !== generationRunId) return;
+          stage = Math.min(stage + 1, generationStages.length - 1);
+          packState = packState.map((card) => ({
+            ...card,
+            progress: Math.min(92, card.progress + 13),
+            pipeline: generationStages.map((label, index) => ({
+              label,
+              state: index < stage ? "done" : index === stage ? "active" : "pending"
+            }))
+          }));
+          renderPack();
+        }, 1400);
+        generationTimers.push(timer);
+
+        try {
+          const response = await fetch("/api/generate", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ sessionId: selectedSong.sessionId, forceFresh: true })
+          });
+          if (!response.ok) {
+            let detail = `Generate failed: ${response.status}`;
+            try {
+              const errorData = await response.json();
+              if (errorData?.error) detail = errorData.error;
+            } catch {
+              // Keep the HTTP status fallback when the response body is not JSON.
+            }
+            throw new Error(detail);
+          }
+          const data = await response.json();
+          if (runId !== generationRunId) return;
+          runtimePackManifest = data.pack;
+          clearGenerationTimers();
+          packState = packState.map((card) => {
+            const guide = runtimePackManifest.guides[card.id];
+            const artifact = manifestGuideToArtifact(guide, card);
+            return {
+              ...card,
+              status: "Playable",
+              progress: 0,
+              stageIndex: generationStages.length,
+              pipeline: generationStages.map((label) => ({ label, state: "done" })),
+              artifact,
+              audioUrl: artifact.audioUrl
+            };
+          });
+          renderPack();
+          renderNextActions();
+          scrollToPack();
+          showToast("Done: real search, download, universe mapping, script, TTS, and clip editing.");
+        } catch (error) {
+          clearGenerationTimers();
+          packState = packState.map((card) => ({ ...card, status: "Failed" }));
+          renderPack();
+          showToast(`Guide generation failed: ${error.message}`);
+        } finally {
+          generatePack.disabled = false;
+        }
+      }
+
+      function setCardStatus(id, status, progress) {
+        packState = packState.map((card) => (card.id === id ? { ...card, status, progress } : card));
+        renderPack();
+      }
+
+      async function runCardGeneration(id, runId) {
+        const template = packTemplates.find((item) => item.id === id);
+        if (!template || runId !== generationRunId) return;
+
+        for (let index = 0; index < generationStages.length; index += 1) {
+          if (runId !== generationRunId) return;
+          updateCardPipeline(id, index, "Generating", Math.round((index / generationStages.length) * 86));
+          await delay(260 + index * 42);
+        }
+
+        if (runId !== generationRunId) return;
+        const artifact = await createAudioArtifact(template, selectedSong);
+        const audioUrl = artifact.audioUrl || URL.createObjectURL(artifact.blob);
+        packState = packState.map((card) =>
+          card.id === id
+            ? {
+                ...card,
+                status: "Playable",
+                progress: 0,
+                stageIndex: generationStages.length,
+                pipeline: generationStages.map((label) => ({ label, state: "done" })),
+                artifact,
+                audioUrl
+              }
+            : card
+        );
+        renderPack();
+        if (id === "song") scrollToPack();
+      }
+
+      function updateCardPipeline(id, activeIndex, status, progress) {
+        packState = packState.map((card) => {
+          if (card.id !== id) return card;
+          return {
+            ...card,
+            status,
+            progress,
+            stageIndex: activeIndex,
+            pipeline: generationStages.map((label, index) => ({
+              label,
+              state: index < activeIndex ? "done" : index === activeIndex ? "active" : "pending"
+            }))
+          };
+        });
+        renderPack();
+      }
+
+      function delay(ms) {
+        return new Promise((resolve) => window.setTimeout(resolve, ms));
+      }
+
+      function scrollToPack() {
+        const side = document.querySelector(".side");
+        const pack = document.querySelector(".pack");
+        if (!side || !pack) return;
+        side.scrollTo({ top: Math.max(pack.offsetTop - 12, 0), behavior: "smooth" });
+      }
+
+      function togglePlayback(id) {
+        const card = packState.find((item) => item.id === id);
+        if (!card || card.status !== "Playable") return;
+        const audio = packList.querySelector(`audio[data-audio="${id}"]`);
+        if (!audio) return;
+        if (activeCardId === id && activeIntervals.length > 0) {
+          clearPlayback();
+          updateActiveCardDom();
+          showToast("Timeline preview paused.");
+          return;
+        }
+        if (activeCardId === id && !audio.paused) {
+          audio.pause();
+          return;
+        }
+        pauseOtherAudio(id);
+        const playAttempt = audio.play();
+        if (playAttempt?.catch) {
+          playAttempt.catch((error) => {
+            const reason = error?.name || "browser restriction";
+            startTimelinePreview(id, reason);
+          });
+        }
+      }
+
+      function clearPlayback() {
+        activeIntervals.forEach((id) => window.clearInterval(id));
+        activeIntervals = [];
+        activeCardId = null;
+        activeCueKey = "";
+        pulseNodes = new Set();
+      }
+
+      function clearGenerationTimers() {
+        generationTimers.forEach((id) => {
+          window.clearTimeout(id);
+          window.clearInterval(id);
+        });
+        generationTimers = [];
+      }
+
+      function pauseOtherAudio(exceptId) {
+        packList.querySelectorAll("audio[data-audio]").forEach((audio) => {
+          if (audio.dataset.audio !== exceptId) audio.pause();
+        });
+      }
+
+      function handleAudioPlay(id, audio) {
+        pauseOtherAudio(id);
+        activeCardId = id;
+        updateActiveCardDom();
+      }
+
+      function handleAudioPause(id, audio) {
+        if (activeCardId === id && !audio.ended) {
+          activeCardId = null;
+          activeCueKey = "";
+          pulseNodes = new Set();
+          updateActiveCardDom();
+        }
+      }
+
+      function syncAudioPlayback(id, audio) {
+        const card = packState.find((item) => item.id === id);
+        if (!card?.artifact || !Number.isFinite(audio.duration) || audio.duration <= 0) return;
+        syncPlaybackPosition(id, audio.currentTime, audio.duration);
+      }
+
+      function syncPlaybackPosition(id, currentTime, duration) {
+        const card = packState.find((item) => item.id === id);
+        if (!card?.artifact || !Number.isFinite(duration) || duration <= 0) return;
+        const progress = Math.min(100, Math.round((currentTime / duration) * 100));
+        card.progress = progress;
+        const bar = packList.querySelector(`[data-card="${id}"] .progress span`);
+        if (bar) bar.style.width = `${progress}%`;
+
+        const cue = card.artifact.cues.find((item) => currentTime >= item.start && currentTime < item.end);
+        const cueKey = cue ? `${id}-${cue.reference.title}-${cue.start}` : "";
+        if (cueKey && cueKey !== activeCueKey) {
+          activeCueKey = cueKey;
+          activateReference(cue.reference);
+        }
+        if (!cue && activeCueKey.startsWith(`${id}-`)) {
+          activeCueKey = "";
+          pulseNodes = new Set();
+        }
+      }
+
+      function startTimelinePreview(id, reason) {
+        clearPlayback();
+        const card = packState.find((item) => item.id === id);
+        if (!card?.artifact) return;
+        activeCardId = id;
+        updateActiveCardDom();
+        let currentTime = 0;
+        const interval = window.setInterval(() => {
+          currentTime += 0.35;
+          syncPlaybackPosition(id, currentTime, card.artifact.duration);
+          if (currentTime >= card.artifact.duration) {
+            window.clearInterval(interval);
+            activeIntervals = activeIntervals.filter((item) => item !== interval);
+            finishAudioPlayback(id);
+          }
+        }, 350);
+        activeIntervals.push(interval);
+        showToast(`Playback did not start: ${reason}. Timeline preview is running; the audio is still downloadable and playable from the controls.`);
+      }
+
+      function finishAudioPlayback(id, audio) {
+        const card = packState.find((item) => item.id === id);
+        if (card?.artifact) addReferences(card.artifact.refs);
+        activeCardId = null;
+        activeCueKey = "";
+        pulseNodes = new Set();
+        renderReferences();
+        renderNextActions();
+        updateActiveCardDom();
+        showToast(`${card?.title || "Guide"} finished playing.`);
+      }
+
+      function updateActiveCardDom() {
+        packList.querySelectorAll(".listen-card").forEach((cardNode) => {
+          const id = cardNode.dataset.card;
+          const active = id === activeCardId;
+          cardNode.classList.toggle("active", active);
+          const button = cardNode.querySelector("[data-play]");
+          const card = packState.find((item) => item.id === id);
+          if (button && card) {
+            const duration = card.artifact?.durationLabel || card.minutes;
+            button.textContent = `${active ? "Pause" : "Play"} / ${duration}`;
+          }
+        });
+      }
+
+      function activateReference(reference, cardId) {
+        pulseNodes = new Set(reference.nodes);
+        highlightedNodes = new Set(addUnique([...highlightedNodes], reference.nodes));
+        sessionPath = addUnique(sessionPath, reference.nodes);
+        reference.edges.forEach((edge) => sessionEdges.add(edge));
+        selectSphereGenres(reference.nodes);
+        addReferences([reference]);
+        updateSessionChips();
+        renderReferences(reference);
+      }
+
+      function addReferences(items) {
+        items.forEach((item) => {
+          const key = `${item.title}-${item.artist}-${item.time}`;
+          if (!references.some((ref) => `${ref.title}-${ref.artist}-${ref.time}` === key)) {
+            references.push(item);
+          }
+        });
+      }
+
+      function renderReferences(activeRef = null) {
+        referenceCount.textContent = String(references.length);
+        if (references.length === 0 && !activeRef) {
+          referenceBody.innerHTML = `<p class="empty-note">Reference clips will appear here in sync while the guide plays.</p>`;
+          return;
+        }
+        const list = activeRef && !references.includes(activeRef) ? [activeRef, ...references] : references;
+        referenceBody.innerHTML = list
+          .map(
+            (ref) => `
+              <article class="reference-card">
+                <strong>${ref.title} - ${ref.artist}</strong>
+                <p>${ref.time} / ${ref.reason}</p>
+                <div class="chips">${makeChips(ref.nodes, "gold")}</div>
+                <a href="${ref.youtube}" target="_blank" rel="noopener">Open YouTube</a>
+              </article>
+            `
+          )
+          .join("");
+      }
+
+      function showScript(id) {
+        const card = packState.find((item) => item.id === id);
+        if (!card?.artifact) return;
+        referenceBody.innerHTML = `
+          <article class="reference-card">
+            <strong>${card.title} / Program Outline</strong>
+            <p>${card.artifact.outline}</p>
+            <p>${card.artifact.script}</p>
+            ${card.artifact.scriptUrl ? `<a href="${card.artifact.scriptUrl}" target="_blank" rel="noopener">Open Generated Script</a>` : ""}
+            <div class="chips">
+              <span class="chip gold">Female expert</span>
+              <span class="chip green">Male newbie</span>
+              <span class="chip">${card.artifact.refs.length} references</span>
+              ${card.artifact.source ? `<span class="chip">TTS + clip edits</span>` : ""}
+            </div>
+          </article>
+        `;
+        showToast("Script summary opened. Reference cards will resync when playback continues.");
+      }
+
+      function downloadAudio(id) {
+        const card = packState.find((item) => item.id === id);
+        if (!card?.audioUrl) return;
+        const link = document.createElement("a");
+        link.href = card.audioUrl;
+        link.download = `${selectedSong.artist}-${selectedSong.title}-${card.id}.wav`.replace(/[^a-z0-9.-]+/gi, "-");
+        link.click();
+        showToast("Guide audio file exported.");
+      }
+
+      async function createAudioArtifact(template, song) {
+        const runtimeGuide = runtimePackManifest?.guides?.[template.id];
+        if (runtimeGuide) return manifestGuideToArtifact(runtimeGuide, template);
+        const manifest = await loadAudioManifest();
+        const guide = manifest?.guides?.[template.id];
+        if (guide) return manifestGuideToArtifact(guide, template);
+        throw new Error("No DeepSeek script or Doubao podcast artifact is available for this song.");
+      }
+
+      async function loadAudioManifest() {
+        if (!audioManifestPromise) {
+          audioManifestPromise = fetch(audioManifestUrl, { cache: "no-store" })
+            .then((response) => (response.ok ? response.json() : null))
+            .catch(() => null);
+        }
+        return audioManifestPromise;
+      }
+
+      function manifestGuideToArtifact(guide, template) {
+        const refs = (guide?.refs || []).map((reference) => ({
+          ...reference,
+          cueStart: reference.cueStart,
+          cueEnd: reference.cueEnd
+        }));
+        const cues = refs.map((reference) => ({
+          start: reference.cueStart,
+          end: reference.cueEnd,
+          reference
+        }));
+        return {
+          audioUrl: guide?.audioUrl || "",
+          scriptUrl: guide?.scriptUrl || "",
+          refs,
+          cues,
+          duration: guide?.duration || null,
+          durationLabel: guide?.durationLabel || template.minutes,
+          outline: guide?.outline || template.goal,
+          script: guide?.script || "DeepSeek script generated. Waiting for Bean TTS audio export.",
+          source: guide?.audioUrl ? "tts-plus-hit-clips" : "deepseek-script"
+        };
+      }
+
+      function renderNextActions() {
+        const roots = [...highlightedNodes].slice(0, 3);
+        nextPrompt.textContent = `Which sound should we enter next? Currently lit: ${roots.map((id) => genreById[id]?.name || id).join(", ")}.`;
+        nextActions.innerHTML = [
+          ...roots.map((id) => `<button type="button" data-dive="${id}">Dive into ${genreById[id]?.name || id}</button>`),
+          `<button type="button" data-different="true">Something entirely different</button>`
+        ].join("");
+
+        nextActions.querySelectorAll("[data-dive]").forEach((button) => {
+          button.addEventListener("click", () => openDeepDive(button.dataset.dive));
+        });
+        const different = nextActions.querySelector("[data-different]");
+        if (different) different.addEventListener("click", jumpDifferent);
+      }
+
+      function openDeepDive(id) {
+        const fallback = selectedSong?.genres?.includes(id) ? id : "funk";
+        const data = diveData[id] || diveData[fallback] || diveData.funk;
+        const genre = genreById[id] || genreById[fallback] || genreById.funk;
+        diveTitle.textContent = `${genre.name} Deep Dive`;
+        diveSubtitle.textContent = data.subtitle;
+        lineageTree.innerHTML = data.lineage
+          .map(
+            ([from, to]) => `
+              <div class="lineage-row">
+                <div class="lineage-node">${from}</div>
+                <div class="arrow">-></div>
+                <div class="lineage-node">${to}</div>
+              </div>
+            `
+          )
+          .join("");
+        worldMap.innerHTML = data.regions
+          .map(([label, x, y]) => `<span class="region" style="left:${x}%; top:${y}%">${label}</span>`)
+          .join("");
+        diveTracks.innerHTML = data.tracks.map((item) => `<div>${item}</div>`).join("");
+        diveArtists.innerHTML = data.artists.map((item) => `<div>${item}</div>`).join("");
+        deepDive.classList.add("show");
+        highlightedNodes.add(id);
+        sessionPath = addUnique(sessionPath, [id]);
+        selectSphereGenres([id]);
+        updateSessionChips();
+      }
+
+      function jumpDifferent() {
+        const far = activeView === "geo" ? ["ambient", "classical", "electronic"] : ["reggae", "latin", "afrobeat"];
+        highlightedNodes = new Set(addUnique([...highlightedNodes], far));
+        pulseNodes = new Set(far);
+        sessionPath = addUnique(sessionPath, far);
+        updateSessionEdges(far);
+        selectSphereGenres(far);
+        updateSessionChips();
+        focusLabel.textContent = "An entirely different region";
+        focusChips.innerHTML = makeChips(far, "gold");
+        focusOnGenres(far);
+      }
+
+      function updateSessionEdges(ids) {
+        edges.forEach(([from, to]) => {
+          if (ids.includes(from) && ids.includes(to)) sessionEdges.add(`${from}->${to}`);
+        });
+      }
+
+      function updateSessionChips() {
+        sessionChips.innerHTML = sessionPath.length ? makeChips(sessionPath, "green") : `<span class="chip">No path yet</span>`;
+      }
+
+      function addUnique(base, additions) {
+        const set = new Set(base);
+        additions.forEach((item) => set.add(item));
+        return [...set];
+      }
+
+      function exportSnapshot() {
+        const link = document.createElement("a");
+        const safeName = selectedSong ? `${selectedSong.artist}-${selectedSong.title}` : "music-map";
+        link.download = `${safeName}-session-map.png`.replace(/[^a-z0-9.-]+/gi, "-");
+        link.href = canvas.toDataURL("image/png");
+        link.click();
+        showToast("Map image exported.");
+      }
+
+      function findTouchedGenre(x, y) {
+        let closest = null;
+        let closestDistance = Infinity;
+        genres.forEach((genre) => {
+          const p = lastProjected.get(genre.id);
+          if (!p || p.z < -0.25) return;
+          const distance = Math.hypot(p.x - x, p.y - y);
+          const zoomHitBoost = Math.max(1, Math.min(2.6, Math.log2(Math.max(1, viewZoom)) * 0.55 + 1));
+          const hitRadius = genre.sourceRank ? Math.max(9, p.size * 1.55 * zoomHitBoost) : Math.max(14, p.size * 2.05);
+          if (distance <= hitRadius && distance < closestDistance) {
+            closest = genre;
+            closestDistance = distance;
+          }
+        });
+        return closest;
+      }
+
+      function touchGenre(genre) {
+        highlightedNodes = new Set(addUnique([...highlightedNodes], [genre.id]));
+        pulseNodes = new Set([genre.id]);
+        sessionPath = addUnique(sessionPath, [genre.id]);
+        selectSphereGenres([genre.id]);
+        updateSessionChips();
+        focusLabel.textContent = "Manually touched node";
+        focusChips.innerHTML = makeChips([genre.id], "gold");
+        showToast(`${genre.name} is now lit.`);
+      }
+
+      searchForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const query = songInput.value.trim() || "Superstition Stevie Wonder";
+        songInput.value = query;
+        performSearch(query);
+      });
+
+      packList.addEventListener("click", (event) => {
+        const button = event.target.closest("button");
+        if (!button || button.disabled) return;
+        if (button.dataset.play) togglePlayback(button.dataset.play);
+        if (button.dataset.script) showScript(button.dataset.script);
+        if (button.dataset.download) downloadAudio(button.dataset.download);
+      });
+
+      generateScript.addEventListener("click", generateListeningScript);
+      generatePack.addEventListener("click", generateListeningPack);
+      exportMap.addEventListener("click", exportSnapshot);
+      closeDive.addEventListener("click", () => deepDive.classList.remove("show"));
+      document.querySelectorAll(".view-switch button").forEach((button) => {
+        button.addEventListener("click", () => {
+          activeView = button.dataset.view;
+          document.querySelectorAll(".view-switch button").forEach((item) => item.classList.toggle("active", item === button));
+          showToast(`Switched to ${button.textContent} view.`);
+        });
+      });
+
+      canvas.addEventListener(
+        "wheel",
+        (event) => {
+          event.preventDefault();
+          const delta = event.deltaY || 0;
+          const zoomFactor = Math.exp(-delta * 0.0014);
+          targetZoom = Math.max(minViewZoom, Math.min(maxViewZoom, targetZoom * zoomFactor));
+        },
+        { passive: false }
+      );
+
+      canvas.addEventListener("pointerdown", (event) => {
+        dragging = true;
+        canvas.setPointerCapture(event.pointerId);
+        dragStart = { x: event.clientX, y: event.clientY, rx: targetRotation.x, ry: targetRotation.y };
+      });
+
+      canvas.addEventListener("pointermove", (event) => {
+        if (!dragging) return;
+        targetRotation.y = dragStart.ry - (event.clientX - dragStart.x) * 0.006;
+        targetRotation.x = Math.max(-1, Math.min(1, dragStart.rx - (event.clientY - dragStart.y) * 0.004));
+      });
+
+      canvas.addEventListener("pointerup", (event) => {
+        const moved = Math.hypot(event.clientX - dragStart.x, event.clientY - dragStart.y);
+        if (moved < 7) {
+          const rect = canvas.getBoundingClientRect();
+          const genre = findTouchedGenre(event.clientX - rect.left, event.clientY - rect.top);
+          if (genre) touchGenre(genre);
+        }
+        dragging = false;
+      });
+
+      canvas.addEventListener("pointercancel", () => {
+        dragging = false;
+      });
+
+      window.addEventListener("resize", resizeCanvas);
+
+      genreNeighborIds = buildGenreNeighborIds();
+      updateSessionChips();
+      renderPack();
+      loadEveryNoiseGenres();
+      resizeCanvas();
+      drawGlobe();
+    </script>
+  </body>
+</html>
