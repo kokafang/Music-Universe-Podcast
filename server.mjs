@@ -1501,7 +1501,7 @@ async function synthesizeVolcPodcastTurns(config, turns, label) {
       if (settled) return;
       settled = true;
       cleanup();
-      socket.end(websocketFrame(0x8, Buffer.alloc(0)));
+      socket.destroy();
       if (!chunks.length) {
         rejectAudio(new Error(`Volc podcast TTS ${label} returned no audio.`));
         return;
@@ -1516,6 +1516,7 @@ async function synthesizeVolcPodcastTurns(config, turns, label) {
       rejectAudio(error);
     };
     const sendEvent = (event, payload) => {
+      if (settled || socket.destroyed || !socket.writable) return;
       socket.write(websocketFrame(0x2, buildVolcMessage(event, payload, sessionId)));
     };
     const scheduleIdleFinish = () => {
@@ -1526,8 +1527,9 @@ async function synthesizeVolcPodcastTurns(config, turns, label) {
       }, idleMs);
     };
     const onMessage = (frame) => {
+      if (settled) return;
       if (frame.opcode === 0x9) {
-        socket.write(websocketFrame(0xA, frame.payload));
+        if (!socket.destroyed && socket.writable) socket.write(websocketFrame(0xA, frame.payload));
         return;
       }
       if (frame.opcode === 0x8) {
@@ -1574,7 +1576,10 @@ async function synthesizeVolcPodcastTurns(config, turns, label) {
       }
     };
     const onData = (chunk) => {
-      for (const frame of reader.push(chunk)) onMessage(frame);
+      for (const frame of reader.push(chunk)) {
+        if (settled) break;
+        onMessage(frame);
+      }
     };
     const onError = (error) => fail(error);
     const onClose = () => {
