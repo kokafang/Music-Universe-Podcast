@@ -1302,12 +1302,12 @@ function uniqueSearchResults(results) {
 async function musicSearchCandidates(q) {
   const previewResults = (await searchPreviewCandidates(q, { limit: 5 }))
     .map((candidate, index) => previewCandidateToSearchResult(candidate, q, index));
-  const shouldTryYoutube = process.env.ENABLE_YTDLP_SEARCH === "1" || !previewResults.length;
-  if (!shouldTryYoutube) return { results: previewResults, warning: "" };
+  const shouldTryYoutubeFallback = !previewResults.length && process.env.ENABLE_YTDLP_FALLBACK !== "0";
+  if (!shouldTryYoutubeFallback) return { results: previewResults, warning: "" };
 
   const youtube = youtubeSearchCandidates(q);
   return {
-    results: uniqueSearchResults([...youtube.results, ...previewResults]).slice(0, 5),
+    results: uniqueSearchResults([...previewResults, ...youtube.results]).slice(0, 5),
     warning: youtube.warning || ""
   };
 }
@@ -1325,6 +1325,9 @@ async function downloadAudio(url, key, meta = {}) {
 
   const previewExisting = readdirSync(sourceDir).find((name) => name.startsWith(`${key}.preview-`) && isAudioCacheFile(name));
   if (previewExisting) return join(sourceDir, previewExisting);
+
+  const preview = await downloadPreviewAudio(key, meta, url);
+  if (preview) return preview;
 
   const existing = cachedAudioFileForKey(key);
   if (existing) return existing;
@@ -4403,11 +4406,13 @@ function runtimeDiagnostics() {
       cookiesFromBrowser: envFirst(["YTDLP_COOKIES_FROM_BROWSER", "YOUTUBE_COOKIES_FROM_BROWSER"]) || "",
       blocked: youtubeBlockedActive(),
       blockReason: youtubeBlockedActive() ? youtubeBlockReason : "",
-      timeoutMs: Number(process.env.YTDLP_TIMEOUT_MS || 25000) || 25000
+      timeoutMs: Number(process.env.YTDLP_TIMEOUT_MS || 25000) || 25000,
+      fallbackEnabled: process.env.ENABLE_YTDLP_FALLBACK !== "0"
     },
     previewAudio: {
       enabled: process.env.ENABLE_PREVIEW_AUDIO_FALLBACK !== "0",
-      providers: String(process.env.PREVIEW_AUDIO_PROVIDERS || "itunes,deezer")
+      providers: String(process.env.PREVIEW_AUDIO_PROVIDERS || "itunes,deezer"),
+      primary: true
     }
   };
 }
@@ -4427,32 +4432,6 @@ async function handleApi(req, res, pathname, searchParams) {
         warning: searchResult.warning,
         source: searchResult.results.some((item) => item.sourceProvider) ? "preview-fallback" : "youtube"
       });
-      const raw = run(commands.ytdlp, [
-        "--no-update",
-        "--flat-playlist",
-        ...ytdlpAuthArgs(),
-        "-J",
-        `ytsearch5:${q}`
-      ], {
-        capture: true,
-        timeoutMs: Number(process.env.YTDLP_SEARCH_TIMEOUT_MS || 20000) || 20000
-      });
-      const data = JSON.parse(raw);
-      const results = (data.entries || [])
-        .filter((entry) => entry && (!entry.duration || Number(entry.duration) > MIN_SONG_SOURCE_SECONDS))
-        .map((entry, index) => ({
-        id: entry.id,
-        title: entry.title || "Unknown title",
-        artist: entry.uploader || entry.channel || "YouTube",
-        uploader: entry.uploader || entry.channel || "YouTube",
-        duration: entry.duration || null,
-        durationLabel: entry.duration ? formatTime(entry.duration) : "未知",
-        source: entry.channel_is_verified ? "YouTube verified result" : "YouTube result",
-        confidence: index === 0 ? "高" : "候选",
-        url: entry.url || `https://www.youtube.com/watch?v=${entry.id}`,
-        thumbnail: entry.thumbnails?.at(-1)?.url || ""
-      }));
-      return jsonResponse(res, 200, { results });
     }
 
     if (pathname === "/api/confirm" && req.method === "POST") {
@@ -4542,71 +4521,6 @@ async function handleApi(req, res, pathname, searchParams) {
         writeFileSync(sessionPath(sessionId), JSON.stringify(session, null, 2));
         return jsonResponse(res, 200, { song: { ...song, sourceFile: undefined, sessionId }, sessionId, warning });
       }
-      const url = body.url || (body.id ? `https://www.youtube.com/watch?v=${body.id}` : "");
-      if (!url) return jsonResponse(res, 400, { error: "Missing YouTube URL" });
-      let info;
-      let warning = "";
-      try {
-        info = getInfo(url);
-      } catch (error) {
-        warning = error.message;
-        if (isYoutubeBlockedError(error)) markYoutubeBlocked(error);
-        console.warn(`YouTube metadata unavailable; continuing with search metadata: ${error.message}`);
-        info = metadataOnlyInfo(body, url, error.message);
-      }
-      if (Number(info.duration || 0) && Number(info.duration || 0) <= MIN_SONG_SOURCE_SECONDS) {
-        return jsonResponse(res, 400, { error: `歌曲时长需要长于 ${MIN_SONG_SOURCE_SECONDS} 秒。` });
-      }
-      const { artist, title } = parseArtistTitle(info);
-      const videoId = info.id || body.id || safeId(url);
-      const genreResult = await inferGenresWithMusicBrainz(info, { artist, title });
-      const genres = genreResult.genres;
-      let sourceFile = "";
-      let sourceDuration = Number(info.duration || body.duration || 0) || 0;
-      try {
-        sourceFile = await downloadAudio(info.webpage_url || url, `selected-${videoId}`, {
-          artist,
-          title,
-          query: `${artist} ${title}`
-        });
-        sourceDuration = getDuration(sourceFile) || Number(info.duration || 0) || sourceDuration;
-      } catch (error) {
-        warning = warning ? `${warning}\n${error.message}` : error.message;
-        console.warn(`Theme audio unavailable; continuing without theme audio: ${error.message}`);
-      }
-      if (sourceFile && sourceDuration < minSourceSecondsFor(sourceFile)) {
-        return jsonResponse(res, 400, { error: `歌曲时长需要长于 ${MIN_SONG_SOURCE_SECONDS} 秒。` });
-      }
-      const sessionId = `${safeId(videoId)}-${Date.now().toString(36)}`;
-      const sessionDir = join(runtimeDir, sessionId);
-      mkdirSync(sessionDir, { recursive: true });
-      const song = {
-        title,
-        artist,
-        year: info.release_year || String(info.upload_date || "").slice(0, 4) || "未知",
-        bpm: "metadata",
-        key: "auto",
-        region: info.uploader || info.channel || "YouTube",
-        source: `${genreResult.source} + yt-dlp audio`,
-        videoId,
-        youtubeUrl: info.webpage_url || url,
-        confidence: genreResult.confidence,
-        genres,
-        summary: `已真实匹配 YouTube：${artist} - ${title}。音频已下载，并通过 ${genreResult.source} 映射到 ${genreRoute(genres)} 节点。`,
-        duration: sourceDuration,
-        sourceFile,
-        genreEvidence: genreResult.musicBrainz?.evidence || []
-      };
-      song.sessionId = sessionId;
-      song.audioAvailable = Boolean(sourceFile);
-      if (warning) {
-        song.warning = warning;
-        song.source = `${genreResult.source} + metadata-only`;
-        song.summary = `Matched ${artist} - ${title} from search metadata. YouTube audio was not available on this machine, so the radio workspace opens first and sampling should use preview/fallback sources.`;
-      }
-      const session = { id: sessionId, song, info, genreResult, warning };
-      writeFileSync(sessionPath(sessionId), JSON.stringify(session, null, 2));
-      return jsonResponse(res, 200, { song: { ...song, sourceFile: undefined, sessionId }, sessionId, warning });
     }
 
     if (pathname === "/api/script" && req.method === "POST") {
