@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { randomBytes, randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { delimiter, dirname, extname, isAbsolute, join, resolve } from "node:path";
+import { dirname, extname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { connect as tlsConnect } from "node:tls";
 import { fileURLToPath } from "node:url";
@@ -37,73 +37,10 @@ const wikipediaApiUrl = "https://en.wikipedia.org/w/api.php";
 const musicBrainzUserAgent =
   process.env.MUSICBRAINZ_USER_AGENT || "MusicUniverseMap/0.1.0 (local research prototype; set MUSICBRAINZ_USER_AGENT for contact)";
 const isWindows = process.platform === "win32";
-
-function pathLikeAbsolute(value) {
-  return isAbsolute(value) || /^[a-zA-Z]:[\\/]/.test(value);
-}
-
-function executableNames(binary) {
-  if (!isWindows || /\.[a-z0-9]+$/i.test(binary)) return [binary];
-  const exts = (process.env.PATHEXT || ".EXE;.CMD;.BAT;.COM").split(";").filter(Boolean);
-  return [binary, ...exts.map((ext) => `${binary}${ext.toLowerCase()}`), ...exts.map((ext) => `${binary}${ext.toUpperCase()}`)];
-}
-
-function findExecutable(command) {
-  if (!command) return "";
-  if (pathLikeAbsolute(command) || command.includes("/") || command.includes("\\")) {
-    return existsSync(command) ? command : "";
-  }
-  for (const dir of (process.env.PATH || "").split(delimiter).filter(Boolean)) {
-    for (const name of executableNames(command)) {
-      const candidate = join(dir, name);
-      if (existsSync(candidate)) return candidate;
-    }
-  }
-  return "";
-}
-
-function pythonFrameworkCandidates(binary) {
-  if (isWindows) return [];
-  const versionsDir = "/Library/Frameworks/Python.framework/Versions";
-  try {
-    return readdirSync(versionsDir).map((version) => join(versionsDir, version, "bin", binary));
-  } catch {
-    return [];
-  }
-}
-
-function resolveCommand(envNames, binary, extraCandidates = []) {
-  const explicit = envFirst(envNames);
-  const candidates = [explicit, binary, ...extraCandidates].filter(Boolean);
-  for (const candidate of candidates) {
-    const found = findExecutable(candidate);
-    if (found) return found;
-  }
-  return explicit || binary;
-}
-
-function resolveExistingFile(value) {
-  if (!value) return "";
-  const file = pathLikeAbsolute(value) ? value : resolve(root, value);
-  try {
-    return existsSync(file) && statSync(file).isFile() ? file : "";
-  } catch {
-    return "";
-  }
-}
-
-function configuredCookieFile() {
-  return resolveExistingFile(envFirst(["YTDLP_COOKIES", "YOUTUBE_COOKIES"]));
-}
-
 const commands = {
-  ytdlp: resolveCommand(["YTDLP_BIN"], "yt-dlp", [
-    "/opt/homebrew/bin/yt-dlp",
-    "/usr/local/bin/yt-dlp",
-    ...pythonFrameworkCandidates("yt-dlp")
-  ]),
-  ffmpeg: resolveCommand(["FFMPEG_BIN"], "ffmpeg", ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg"]),
-  ffprobe: resolveCommand(["FFPROBE_BIN"], "ffprobe", ["/opt/homebrew/bin/ffprobe", "/usr/local/bin/ffprobe"]),
+  ytdlp: process.env.YTDLP_BIN || (isWindows ? "yt-dlp" : "/opt/homebrew/bin/yt-dlp"),
+  ffmpeg: process.env.FFMPEG_BIN || (isWindows ? "ffmpeg" : "/opt/homebrew/bin/ffmpeg"),
+  ffprobe: process.env.FFPROBE_BIN || (isWindows ? "ffprobe" : "/opt/homebrew/bin/ffprobe"),
   fishPython: process.env.FISH_PYTHON || join(root, ".venv-fish", isWindows ? "Scripts" : "bin", isWindows ? "python.exe" : "python"),
   fishTts: join(root, "scripts", "fish_tts.py"),
   fishRoot: join(root, "tools", "fish-speech"),
@@ -121,7 +58,7 @@ const commands = {
 
 function ytdlpAuthArgs() {
   const args = [];
-  const cookies = configuredCookieFile();
+  const cookies = envFirst(["YTDLP_COOKIES", "YOUTUBE_COOKIES"]);
   const cookiesFromBrowser = envFirst(["YTDLP_COOKIES_FROM_BROWSER", "YOUTUBE_COOKIES_FROM_BROWSER"]);
   if (cookies) args.push("--cookies", cookies);
   if (cookiesFromBrowser) args.push("--cookies-from-browser", cookiesFromBrowser);
@@ -714,9 +651,11 @@ function metadataOnlyInfo(body, url, reason = "") {
   };
 }
 
-function createSessionSong({ sessionId, info, body, url, artist, title, videoId, genreResult, sourceFile, sourceDuration, warning }) {
+function createSessionSong({ sessionId, info, body, url, artist, title, videoId, genreResult, sourceFile, sourceDuration, warning, sourceProvider }) {
   const genres = genreResult.genres;
   const hasAudio = Boolean(sourceFile);
+  const providerLabel = sourceProvider ? `${sourceProvider} preview audio` : "yt-dlp audio";
+  const sourceUrl = body.sourceUrl || body.url || url;
   return {
     title,
     artist,
@@ -724,18 +663,19 @@ function createSessionSong({ sessionId, info, body, url, artist, title, videoId,
     bpm: "metadata",
     key: "auto",
     region: info.uploader || info.channel || body.uploader || "Online source",
-    source: hasAudio ? `${genreResult.source} + yt-dlp audio` : `${genreResult.source} + metadata-only`,
+    source: hasAudio ? `${genreResult.source} + ${providerLabel}` : `${genreResult.source} + metadata-only`,
     videoId,
-    youtubeUrl: info.webpage_url || url,
+    youtubeUrl: info.webpage_url || sourceUrl || url,
     confidence: genreResult.confidence,
     genres,
     summary: hasAudio
-      ? `Matched ${artist} - ${title}. Audio is cached locally and mapped to ${genreRoute(genres)}.`
+      ? `Matched ${artist} - ${title}. Audio is cached from ${sourceProvider ? `${sourceProvider} preview` : "the selected public source"} and mapped to ${genreRoute(genres)}.`
       : `Matched ${artist} - ${title} from search metadata. YouTube audio was not available on this machine, so the radio workspace opens first and sampling will use available preview/fallback sources.`,
     duration: sourceDuration || Number(info.duration || body.duration || 0) || 0,
     ...(sourceFile ? { sourceFile } : {}),
     sessionId,
     audioAvailable: hasAudio,
+    sourceProvider: sourceProvider || "",
     warning: warning || "",
     genreEvidence: genreResult.musicBrainz?.evidence || []
   };
@@ -966,22 +906,399 @@ function neighborGenres(genre) {
     .slice(0, 3);
 }
 
-function downloadAudio(url, key) {
-  const existing = readdirSync(sourceDir).find((name) => name.startsWith(`${key}.`));
+let youtubeBlockedUntil = 0;
+let youtubeBlockReason = "";
+
+function isLikelyYoutubeRequest(url) {
+  const text = String(url || "");
+  if (/^ytsearch\d*:/i.test(text)) return true;
+  try {
+    const host = new URL(text).hostname.replace(/^www\./, "");
+    return ["youtube.com", "music.youtube.com", "m.youtube.com", "youtu.be"].includes(host);
+  } catch {
+    return /youtube|youtu\.be/i.test(text);
+  }
+}
+
+function isYoutubeBlockedError(error) {
+  const text = String(error?.message || error || "").toLowerCase();
+  return /not a bot|sign in to confirm|cookies-from-browser|use --cookies|bot check|confirm you're not a bot|confirm you.re not a bot/.test(text);
+}
+
+function markYoutubeBlocked(error) {
+  youtubeBlockReason = truncateText(error?.message || String(error || ""), 400);
+  const cooldownMs = Number(process.env.YTDLP_BLOCK_COOLDOWN_MS || 10 * 60 * 1000) || 10 * 60 * 1000;
+  youtubeBlockedUntil = Date.now() + cooldownMs;
+}
+
+function youtubeBlockedActive() {
+  return Date.now() < youtubeBlockedUntil;
+}
+
+const AUDIO_FILE_EXTENSIONS = new Set([".aac", ".flac", ".m4a", ".mp3", ".mp4", ".ogg", ".opus", ".wav", ".webm"]);
+
+function isAudioCacheFile(name) {
+  return AUDIO_FILE_EXTENSIONS.has(extname(String(name || "")).toLowerCase());
+}
+
+function cachedAudioFileForKey(key) {
+  const existing = readdirSync(sourceDir).find((name) => name.startsWith(`${key}.`) && isAudioCacheFile(name));
+  return existing ? join(sourceDir, existing) : null;
+}
+
+function isPreviewAudio(file) {
+  return /\.preview-(itunes|deezer)\./i.test(String(file || ""));
+}
+
+function minSourceSecondsFor(file) {
+  return isPreviewAudio(file)
+    ? Number(process.env.MIN_PREVIEW_SOURCE_SECONDS || 20) || 20
+    : MIN_SONG_SOURCE_SECONDS;
+}
+
+function clipLengthForSource(clip, sourceFile, sourceDuration) {
+  const baseLength = Math.max(MIN_MUSIC_LISTEN_SECONDS, Number(clip?.length || DEFAULT_MUSIC_LISTEN_SECONDS) || DEFAULT_MUSIC_LISTEN_SECONDS);
+  if (!isPreviewAudio(sourceFile)) return baseLength;
+  if (!Number.isFinite(sourceDuration) || sourceDuration <= 0) return baseLength;
+  return Math.max(12, Math.min(baseLength, sourceDuration - 0.25));
+}
+
+function audioSearchTerm(meta = {}, url = "") {
+  const direct = [meta.artist, meta.title].filter(Boolean).join(" ").trim();
+  if (direct) return direct;
+  const query = String(meta.query || "").trim();
+  if (query) return query.replace(/\bofficial audio\b/gi, "").trim();
+  const ytSearch = String(url || "").match(/^ytsearch\d*:(.+)$/i);
+  return (ytSearch?.[1] || String(url || "")).replace(/\bofficial audio\b/gi, "").trim();
+}
+
+function previewCandidateScore(candidate, meta = {}, fallbackTerm = "") {
+  const artistScore = meta.artist ? simpleTextMatchScore(candidate.artist, meta.artist) : 0.5;
+  const titleScore = meta.title ? simpleTextMatchScore(candidate.title, meta.title) : simpleTextMatchScore(`${candidate.artist} ${candidate.title}`, fallbackTerm);
+  const queryScore = fallbackTerm ? simpleTextMatchScore(`${candidate.artist} ${candidate.title}`, fallbackTerm) : 0;
+  return artistScore * 0.42 + titleScore * 0.48 + queryScore * 0.1;
+}
+
+async function previewCandidatesFromItunes(term) {
+  const url = new URL("https://itunes.apple.com/search");
+  url.searchParams.set("media", "music");
+  url.searchParams.set("entity", "song");
+  url.searchParams.set("limit", "8");
+  url.searchParams.set("term", term);
+  if (process.env.ITUNES_COUNTRY) url.searchParams.set("country", process.env.ITUNES_COUNTRY);
+  const data = await fetchJsonWithTimeout(url.toString(), {}, "iTunes preview search", Number(process.env.PREVIEW_SEARCH_TIMEOUT_MS || 8000) || 8000);
+  return (data.results || [])
+    .filter((item) => item.previewUrl)
+    .map((item) => ({
+      provider: "itunes",
+      providerLabel: "iTunes",
+      providerId: item.trackId ? String(item.trackId) : "",
+      artist: item.artistName || "",
+      title: item.trackName || "",
+      previewUrl: item.previewUrl,
+      sourceUrl: item.trackViewUrl || "",
+      thumbnail: item.artworkUrl100 || item.artworkUrl60 || "",
+      duration: item.trackTimeMillis ? Math.round(Number(item.trackTimeMillis) / 1000) : null,
+      year: item.releaseDate ? String(item.releaseDate).slice(0, 4) : "",
+      ext: "m4a"
+    }));
+}
+
+async function previewCandidatesFromDeezer(term) {
+  const url = new URL("https://api.deezer.com/search/track");
+  url.searchParams.set("q", term);
+  url.searchParams.set("limit", "8");
+  const data = await fetchJsonWithTimeout(url.toString(), {}, "Deezer preview search", Number(process.env.PREVIEW_SEARCH_TIMEOUT_MS || 8000) || 8000);
+  return (data.data || [])
+    .filter((item) => item.preview)
+    .map((item) => ({
+      provider: "deezer",
+      providerLabel: "Deezer",
+      providerId: item.id ? String(item.id) : "",
+      artist: item.artist?.name || "",
+      title: item.title_short || item.title || "",
+      previewUrl: item.preview,
+      sourceUrl: item.link || "",
+      thumbnail: item.album?.cover_medium || item.album?.cover || "",
+      duration: item.duration ? Number(item.duration) : null,
+      year: "",
+      ext: "mp3"
+    }));
+}
+
+async function searchPreviewCandidates(term, options = {}) {
+  const limit = Number(options.limit || 5) || 5;
+  const providers = String(process.env.PREVIEW_AUDIO_PROVIDERS || "itunes,deezer")
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+  const providerSearch = {
+    itunes: previewCandidatesFromItunes,
+    deezer: previewCandidatesFromDeezer
+  };
+  const candidates = [];
+  for (const provider of providers) {
+    const search = providerSearch[provider];
+    if (!search) continue;
+    try {
+      candidates.push(...await search(term));
+    } catch (error) {
+      console.warn(`${provider} preview search failed for ${term}: ${error.message}`);
+    }
+  }
+  return candidates
+    .map((candidate) => ({ ...candidate, score: previewCandidateScore(candidate, options.meta || {}, term) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+}
+
+function previewCandidateToSearchResult(candidate, term, index = 0) {
+  const provider = candidate.provider || "preview";
+  const idBase = candidate.providerId || `${candidate.artist}-${candidate.title}-${index}`;
+  const score = Number(candidate.score || 0);
+  return {
+    id: `preview-${provider}-${safeId(idBase)}`,
+    title: candidate.title || term,
+    artist: candidate.artist || "Unknown Artist",
+    uploader: candidate.artist || candidate.providerLabel || "Preview source",
+    duration: candidate.duration || null,
+    durationLabel: candidate.duration ? formatTime(candidate.duration) : "0:30 preview",
+    source: `${candidate.providerLabel || provider} preview fallback`,
+    confidence: score ? `${Math.round(Math.min(score, 1) * 100)}%` : "preview",
+    url: candidate.sourceUrl || "",
+    previewUrl: candidate.previewUrl,
+    provider,
+    sourceProvider: provider,
+    sourceUrl: candidate.sourceUrl || "",
+    thumbnail: candidate.thumbnail || "",
+    year: candidate.year || ""
+  };
+}
+
+function previewFileExtension(previewUrl, provider = "") {
+  try {
+    const ext = extname(new URL(previewUrl).pathname).replace(".", "").toLowerCase();
+    if (AUDIO_FILE_EXTENSIONS.has(`.${ext}`)) return ext;
+  } catch {
+    // Fall back to provider defaults below.
+  }
+  return provider === "deezer" ? "mp3" : "m4a";
+}
+
+async function downloadPreviewUrlAudio(key, previewUrl, provider = "preview", meta = {}) {
+  if (!previewUrl || process.env.ENABLE_PREVIEW_AUDIO_FALLBACK === "0") return "";
+  const safeProvider = safeId(provider || "preview") || "preview";
+  const existing = readdirSync(sourceDir).find((name) => name.startsWith(`${key}.preview-${safeProvider}.`) && isAudioCacheFile(name));
   if (existing) return join(sourceDir, existing);
-  run(commands.ytdlp, [
-    "--no-update",
-    "--no-playlist",
-    ...ytdlpAuthArgs(),
-    "-f",
-    "ba",
-    "-o",
-    join(sourceDir, `${key}.%(ext)s`),
-    url
-  ], { timeoutMs: Number(process.env.YTDLP_TIMEOUT_MS || 90000) || 90000 });
-  const downloaded = readdirSync(sourceDir).find((name) => name.startsWith(`${key}.`));
+  const ext = previewFileExtension(previewUrl, safeProvider);
+  const output = join(sourceDir, `${key}.preview-${safeProvider}.${ext}`);
+  try {
+    const audio = await fetchAudioWithTimeout(previewUrl, {}, `${safeProvider} preview download`, Number(process.env.PREVIEW_DOWNLOAD_TIMEOUT_MS || 12000) || 12000);
+    writeFileSync(output, audio);
+    const duration = getDuration(output);
+    if (duration < minSourceSecondsFor(output)) {
+      try { unlinkSync(output); } catch {}
+      throw new Error(`Preview audio is too short (${formatTime(duration)}).`);
+    }
+    writeFileSync(`${output}.json`, JSON.stringify({
+      provider: safeProvider,
+      artist: meta.artist || "",
+      title: meta.title || "",
+      term: meta.query || [meta.artist, meta.title].filter(Boolean).join(" "),
+      previewUrl,
+      generatedAt: new Date().toISOString()
+    }, null, 2));
+    return output;
+  } catch (error) {
+    try { if (existsSync(output)) unlinkSync(output); } catch {}
+    throw error;
+  }
+}
+
+async function downloadPreviewAudio(key, meta = {}, url = "") {
+  if (process.env.ENABLE_PREVIEW_AUDIO_FALLBACK === "0") return "";
+  const directPreviewUrl = String(meta.previewUrl || meta.audioPreviewUrl || "").trim();
+  if (directPreviewUrl) {
+    try {
+      return await downloadPreviewUrlAudio(key, directPreviewUrl, meta.sourceProvider || meta.provider || "preview", meta);
+    } catch (error) {
+      console.warn(`Direct preview download failed for ${audioSearchTerm(meta, url) || key}: ${error.message}`);
+    }
+  }
+  const existing = readdirSync(sourceDir).find((name) => name.startsWith(`${key}.preview-`) && isAudioCacheFile(name));
+  if (existing) return join(sourceDir, existing);
+  const term = audioSearchTerm(meta, url);
+  if (!term) return "";
+
+  const providers = String(process.env.PREVIEW_AUDIO_PROVIDERS || "itunes,deezer")
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+  const providerSearch = {
+    itunes: previewCandidatesFromItunes,
+    deezer: previewCandidatesFromDeezer
+  };
+  const candidates = [];
+  for (const provider of providers) {
+    const search = providerSearch[provider];
+    if (!search) continue;
+    try {
+      candidates.push(...await search(term));
+    } catch (error) {
+      console.warn(`${provider} preview search failed for ${term}: ${error.message}`);
+    }
+  }
+
+  const ranked = candidates
+    .map((candidate) => ({ ...candidate, score: previewCandidateScore(candidate, meta, term) }))
+    .sort((a, b) => b.score - a.score);
+  const minScore = Number(process.env.PREVIEW_MATCH_MIN_SCORE || 0.34) || 0.34;
+  for (const candidate of ranked) {
+    if (candidate.score < minScore) continue;
+    const output = join(sourceDir, `${key}.preview-${candidate.provider}.${candidate.ext}`);
+    try {
+      const audio = await fetchAudioWithTimeout(candidate.previewUrl, {}, `${candidate.provider} preview download`, Number(process.env.PREVIEW_DOWNLOAD_TIMEOUT_MS || 12000) || 12000);
+      writeFileSync(output, audio);
+      const duration = getDuration(output);
+      if (duration < minSourceSecondsFor(output)) {
+        try { unlinkSync(output); } catch {}
+        continue;
+      }
+      writeFileSync(`${output}.json`, JSON.stringify({
+        provider: candidate.provider,
+        artist: candidate.artist,
+        title: candidate.title,
+        score: candidate.score,
+        term,
+        previewUrl: candidate.previewUrl,
+        generatedAt: new Date().toISOString()
+      }, null, 2));
+      return output;
+    } catch (error) {
+      try { if (existsSync(output)) unlinkSync(output); } catch {}
+      console.warn(`${candidate.provider} preview download failed for ${candidate.artist} - ${candidate.title}: ${error.message}`);
+    }
+  }
+  return "";
+}
+
+function isYtdlpTimeoutError(error) {
+  return /etimedout|timed out|timeout/i.test(String(error?.message || error || ""));
+}
+
+function youtubeSearchCandidates(q) {
+  if (process.env.SKIP_YTDLP_SEARCHES === "1" || youtubeBlockedActive()) {
+    return { results: [], warning: youtubeBlockedActive() ? youtubeBlockReason : "yt-dlp search skipped" };
+  }
+  try {
+    const raw = run(commands.ytdlp, [
+      "--no-update",
+      "--flat-playlist",
+      ...ytdlpAuthArgs(),
+      "-J",
+      `ytsearch5:${q}`
+    ], {
+      capture: true,
+      timeoutMs: Number(process.env.YTDLP_SEARCH_TIMEOUT_MS || 7000) || 7000
+    });
+    const data = JSON.parse(raw);
+    const results = (data.entries || [])
+      .filter((entry) => entry && (!entry.duration || Number(entry.duration) > MIN_SONG_SOURCE_SECONDS))
+      .map((entry, index) => ({
+        id: entry.id,
+        title: entry.title || "Unknown title",
+        artist: entry.uploader || entry.channel || "YouTube",
+        uploader: entry.uploader || entry.channel || "YouTube",
+        duration: entry.duration || null,
+        durationLabel: entry.duration ? formatTime(entry.duration) : "unknown",
+        source: entry.channel_is_verified ? "YouTube verified result" : "YouTube result",
+        confidence: index === 0 ? "high" : "candidate",
+        url: entry.url || `https://www.youtube.com/watch?v=${entry.id}`,
+        thumbnail: entry.thumbnails?.at(-1)?.url || ""
+      }));
+    return { results, warning: "" };
+  } catch (error) {
+    if (isYoutubeBlockedError(error) || isYtdlpTimeoutError(error)) markYoutubeBlocked(error);
+    console.warn(`yt-dlp search unavailable; using preview fallback for ${q}: ${error.message}`);
+    return { results: [], warning: error.message };
+  }
+}
+
+function uniqueSearchResults(results) {
+  const seen = new Set();
+  const unique = [];
+  for (const result of results) {
+    const key = normalizeSearchText(`${result.artist} ${result.title}`);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    unique.push(result);
+  }
+  return unique;
+}
+
+async function musicSearchCandidates(q) {
+  const previewResults = (await searchPreviewCandidates(q, { limit: 5 }))
+    .map((candidate, index) => previewCandidateToSearchResult(candidate, q, index));
+  const shouldTryYoutube = process.env.ENABLE_YTDLP_SEARCH === "1" || !previewResults.length;
+  if (!shouldTryYoutube) return { results: previewResults, warning: "" };
+
+  const youtube = youtubeSearchCandidates(q);
+  return {
+    results: uniqueSearchResults([...youtube.results, ...previewResults]).slice(0, 5),
+    warning: youtube.warning || ""
+  };
+}
+
+async function downloadAudio(url, key, meta = {}) {
+  const directPreviewUrl = String(meta.previewUrl || meta.audioPreviewUrl || "").trim();
+  if (directPreviewUrl) {
+    try {
+      const preview = await downloadPreviewUrlAudio(key, directPreviewUrl, meta.sourceProvider || meta.provider || "preview", meta);
+      if (preview) return preview;
+    } catch (error) {
+      console.warn(`Direct preview download failed for ${audioSearchTerm(meta, url) || key}: ${error.message}`);
+    }
+  }
+
+  const previewExisting = readdirSync(sourceDir).find((name) => name.startsWith(`${key}.preview-`) && isAudioCacheFile(name));
+  if (previewExisting) return join(sourceDir, previewExisting);
+
+  const existing = cachedAudioFileForKey(key);
+  if (existing) return existing;
+
+  const shouldUseYoutube = process.env.SKIP_YTDLP_DOWNLOADS !== "1" && !(isLikelyYoutubeRequest(url) && youtubeBlockedActive());
+  if (shouldUseYoutube) {
+    try {
+      run(commands.ytdlp, [
+        "--no-update",
+        "--no-playlist",
+        ...ytdlpAuthArgs(),
+        "-f",
+        "ba",
+        "-o",
+        join(sourceDir, `${key}.%(ext)s`),
+        url
+      ], { timeoutMs: Number(process.env.YTDLP_TIMEOUT_MS || 25000) || 25000, capture: true });
+    } catch (error) {
+      if (isLikelyYoutubeRequest(url) && isYoutubeBlockedError(error)) {
+        markYoutubeBlocked(error);
+        console.warn(`YouTube download blocked; switching to preview fallback for ${audioSearchTerm(meta, url) || key}.`);
+        const fallback = await downloadPreviewAudio(key, meta, url);
+        if (fallback) return fallback;
+      } else {
+        const fallback = await downloadPreviewAudio(key, meta, url);
+        if (fallback) return fallback;
+        throw error;
+      }
+    }
+  } else if (youtubeBlockedActive()) {
+    console.warn(`Skipping yt-dlp while YouTube block cooldown is active: ${youtubeBlockReason}`);
+    const fallback = await downloadPreviewAudio(key, meta, url);
+    if (fallback) return fallback;
+  }
+  const downloaded = cachedAudioFileForKey(key);
   if (!downloaded) throw new Error(`No audio downloaded for ${url}`);
-  return join(sourceDir, downloaded);
+  return downloaded;
 }
 
 function getInfo(url) {
@@ -1156,6 +1473,16 @@ async function fetchAudio(url, options, label) {
     throw new Error(`${label} failed with HTTP ${response.status}: ${truncateText(text, 500)}`);
   }
   return Buffer.from(await response.arrayBuffer());
+}
+
+async function fetchAudioWithTimeout(url, options = {}, label = "audio download", timeoutMs = 12000) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetchAudio(url, { ...options, signal: controller.signal }, label);
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function callDeepSeekJson(messages, label) {
@@ -2216,7 +2543,7 @@ function directYoutubeAudioUrl(value) {
   return "";
 }
 
-function clipSegment(dir, guideId, index, clip) {
+async function clipSegment(dir, guideId, index, clip) {
   const directUrl = directYoutubeAudioUrl(clip.youtube);
   const query = clip.query || `${clip.artist} ${clip.title} official audio`;
   if (clip.sourceFile && /local-test/i.test(String(clip.sourceFile)) && process.env.ALLOW_PLACEHOLDER_AUDIO !== "1") {
@@ -2224,12 +2551,17 @@ function clipSegment(dir, guideId, index, clip) {
   }
   const source = clip.sourceFile && existsSync(clip.sourceFile)
     ? clip.sourceFile
-    : downloadAudio(directUrl || `ytsearch1:${query}`, safeId(query));
+    : await downloadAudio(directUrl || `ytsearch1:${query}`, safeId(query), {
+      artist: clip.artist,
+      title: cleanSongTitleForSpeech(clip.title),
+      query
+    });
   const sourceDuration = getDuration(source);
-  if (sourceDuration <= MIN_SONG_SOURCE_SECONDS) {
-    throw new Error(`Music source is too short (${formatTime(sourceDuration)}). Need more than ${MIN_SONG_SOURCE_SECONDS} seconds.`);
+  const minSourceSeconds = minSourceSecondsFor(source);
+  if (sourceDuration < minSourceSeconds) {
+    throw new Error(`Music source is too short (${formatTime(sourceDuration)}). Need at least ${minSourceSeconds} seconds.`);
   }
-  const clipLength = Math.max(MIN_MUSIC_LISTEN_SECONDS, Number(clip.length || DEFAULT_MUSIC_LISTEN_SECONDS) || DEFAULT_MUSIC_LISTEN_SECONDS);
+  const clipLength = clipLengthForSource(clip, source, sourceDuration);
   const maxStart = Math.max(sourceDuration - clipLength - 1, 0);
   const requestedStart = Number(clip.start || 8) || 8;
   const start = maxStart > 0
@@ -2322,8 +2654,7 @@ function fallbackThemeClip(session, length, failedClip) {
 function cachedAudioForClip(clip) {
   const query = clip?.query || `${clip?.artist || ""} ${clip?.title || ""} official audio`;
   const key = safeId(query);
-  const existing = readdirSync(sourceDir).find((name) => name.startsWith(`${key}.`));
-  return existing ? join(sourceDir, existing) : null;
+  return cachedAudioFileForKey(key);
 }
 
 function samplePoolPath(session) {
@@ -2384,7 +2715,7 @@ function clipRoleScore(clip, guideId, index = 0) {
   return -index * 0.01;
 }
 
-function buildSamplePool(session, workDir, options = {}) {
+async function buildSamplePool(session, workDir, options = {}) {
   const target = Number(options.target || process.env.SAMPLE_POOL_TARGET || 18) || 18;
   const maxCandidates = Number(options.maxCandidates || process.env.SAMPLE_POOL_MAX_CANDIDATES || 42) || 42;
   const forceFresh = options.forceFresh === true;
@@ -2398,14 +2729,19 @@ function buildSamplePool(session, workDir, options = {}) {
     if (!key || seen.has(key)) continue;
     seen.add(key);
     try {
-      const sourceFile = downloadAudio(directYoutubeAudioUrl(clip.youtube) || `ytsearch1:${clip.query || `${clip.artist} ${clip.title} official audio`}`, safeId(clip.query || `${clip.artist} ${clip.title} official audio`));
+      const query = clip.query || `${clip.artist} ${clip.title} official audio`;
+      const sourceFile = await downloadAudio(directYoutubeAudioUrl(clip.youtube) || `ytsearch1:${query}`, safeId(query), {
+        artist: clip.artist,
+        title: cleanSongTitleForSpeech(clip.title),
+        query
+      });
       const sourceDuration = getDuration(sourceFile);
-      if (sourceDuration <= MIN_SONG_SOURCE_SECONDS) continue;
+      if (sourceDuration < minSourceSecondsFor(sourceFile)) continue;
       items.push({
         ...stripClipAlternates(clip),
         sourceFile,
         sourceDuration,
-        length: Math.max(MIN_MUSIC_LISTEN_SECONDS, Number(clip.length || DEFAULT_MUSIC_LISTEN_SECONDS) || DEFAULT_MUSIC_LISTEN_SECONDS),
+        length: clipLengthForSource(clip, sourceFile, sourceDuration),
         poolKey: key
       });
       if (items.length >= target) break;
@@ -2444,12 +2780,12 @@ function pickFromSamplePool(pool, session, guideId, used, slotIndex) {
   };
 }
 
-function renderBestClipSegment(workDir, guideId, index, clip, session, clipUseCounts, usedClipKeys) {
+async function renderBestClipSegment(workDir, guideId, index, clip, session, clipUseCounts, usedClipKeys) {
   let lastError = null;
   const primary = stripClipAlternates(clip);
   try {
     const renderedClip = uniqueClipOccurrence(primary, clipUseCounts);
-    const rendered = clipSegment(workDir, guideId, index, renderedClip);
+    const rendered = await clipSegment(workDir, guideId, index, renderedClip);
     const key = clipIdentity(primary);
     if (key && !isThemeClip(primary, session)) usedClipKeys.add(key);
     return { renderedClip, rendered };
@@ -2463,7 +2799,7 @@ function renderBestClipSegment(workDir, guideId, index, clip, session, clipUseCo
     const key = clipIdentity(candidate);
     const renderedClip = uniqueClipOccurrence(candidate, clipUseCounts);
     try {
-      const rendered = clipSegment(workDir, guideId, index, renderedClip);
+      const rendered = await clipSegment(workDir, guideId, index, renderedClip);
       if (key) usedClipKeys.add(key);
       return { renderedClip, rendered };
     } catch (error) {
@@ -2477,7 +2813,7 @@ function renderBestClipSegment(workDir, guideId, index, clip, session, clipUseCo
     throw new Error(`鐪熷疄鎻掑叆鏇蹭笅杞藉け璐ワ細${clipName(clip)}銆?{lastError?.message || "No fallback source"}`);
   }
   const renderedClip = uniqueClipOccurrence(fallback, clipUseCounts);
-  const rendered = clipSegment(workDir, guideId, index, renderedClip);
+  const rendered = await clipSegment(workDir, guideId, index, renderedClip);
   const key = clipIdentity(fallback);
   if (key) usedClipKeys.add(key);
   return { renderedClip, rendered };
@@ -2552,7 +2888,8 @@ function ensureDownloadableGuideClipPlan(guides, session, workDir, samplePool = 
         const candidateKey = clipIdentity(candidate);
         if (candidateKey && used.has(candidateKey)) continue;
         try {
-          clipSegment(workDir, `${guide.id}-preflight`, index, candidate);
+          const cached = cachedAudioForClip(candidate);
+          if (!cached) continue;
           if (candidateKey) used.add(candidateKey);
           return ["clip", stripClipAlternates(candidate)];
         } catch (error) {
@@ -2563,7 +2900,8 @@ function ensureDownloadableGuideClipPlan(guides, session, workDir, samplePool = 
       for (const candidate of secondPass) {
         if (isThemeClip(candidate, session)) continue;
         try {
-          clipSegment(workDir, `${guide.id}-preflight-repeat`, index, candidate);
+          const cached = cachedAudioForClip(candidate);
+          if (!cached) continue;
           const key = clipIdentity(candidate);
           const repeatIndex = key ? [...used].filter((value) => value.startsWith(`${key}#repeat`) || value === key).length : clipNumber;
           if (key) used.add(`${key}#repeat-${guide.id}-${clipNumber}`);
@@ -3720,7 +4058,7 @@ async function generatePack(session, options = {}) {
     guides: {}
   };
 
-  const samplePool = buildSamplePool(session, workDir, { forceFresh: forceFresh && options.refreshSamplePool === true });
+  const samplePool = await buildSamplePool(session, workDir, { forceFresh: forceFresh && options.refreshSamplePool === true });
   const baseGuides = ensureDownloadableGuideClipPlan(
     chooseGuideClipPlan(buildGuides(session.song), session),
     session,
@@ -3810,7 +4148,7 @@ async function generatePack(session, options = {}) {
         pendingClip = null;
       }
 
-      const { renderedClip: chosenClip, rendered } = renderBestClipSegment(
+      const { renderedClip: chosenClip, rendered } = await renderBestClipSegment(
         workDir,
         guide.id,
         index,
@@ -3982,8 +4320,6 @@ function runtimeDiagnostics() {
     ? "volc-podcast"
     : requestedEngine;
   const missing = (requiredByEngine[engineKey] || []).filter((key) => !envFirst([key]));
-  const requestedCookies = envFirst(["YTDLP_COOKIES", "YOUTUBE_COOKIES"]);
-  const usableCookies = configuredCookieFile();
   return {
     ok: !missing.length,
     engine: engineKey,
@@ -3991,10 +4327,15 @@ function runtimeDiagnostics() {
     hasEnvFile: existsSync(join(root, ".env")),
     ytdlp: {
       bin: commands.ytdlp,
-      cookiesConfigured: Boolean(requestedCookies),
-      hasCookies: Boolean(usableCookies),
-      cookiesPathValid: !requestedCookies || Boolean(usableCookies),
-      cookiesFromBrowser: envFirst(["YTDLP_COOKIES_FROM_BROWSER", "YOUTUBE_COOKIES_FROM_BROWSER"]) || ""
+      hasCookies: Boolean(envFirst(["YTDLP_COOKIES", "YOUTUBE_COOKIES"])),
+      cookiesFromBrowser: envFirst(["YTDLP_COOKIES_FROM_BROWSER", "YOUTUBE_COOKIES_FROM_BROWSER"]) || "",
+      blocked: youtubeBlockedActive(),
+      blockReason: youtubeBlockedActive() ? youtubeBlockReason : "",
+      timeoutMs: Number(process.env.YTDLP_TIMEOUT_MS || 25000) || 25000
+    },
+    previewAudio: {
+      enabled: process.env.ENABLE_PREVIEW_AUDIO_FALLBACK !== "0",
+      providers: String(process.env.PREVIEW_AUDIO_PROVIDERS || "itunes,deezer")
     }
   };
 }
@@ -4008,6 +4349,12 @@ async function handleApi(req, res, pathname, searchParams) {
     if (pathname === "/api/search" && req.method === "GET") {
       const q = searchParams.get("q") || "";
       if (!q.trim()) return jsonResponse(res, 400, { error: "Missing query" });
+      const searchResult = await musicSearchCandidates(q);
+      return jsonResponse(res, 200, {
+        results: searchResult.results,
+        warning: searchResult.warning,
+        source: searchResult.results.some((item) => item.sourceProvider) ? "preview-fallback" : "youtube"
+      });
       const raw = run(commands.ytdlp, [
         "--no-update",
         "--flat-playlist",
@@ -4038,6 +4385,91 @@ async function handleApi(req, res, pathname, searchParams) {
 
     if (pathname === "/api/confirm" && req.method === "POST") {
       const body = await readJson(req);
+      {
+        const previewUrl = String(body.previewUrl || "").trim();
+        const sourceProvider = String(body.sourceProvider || body.provider || "").trim().toLowerCase();
+        const sourceUrl = String(body.sourceUrl || body.url || "").trim();
+        const idLooksYoutube = body.id && !String(body.id).startsWith("preview-");
+        const youtubeUrl = sourceUrl || (idLooksYoutube ? `https://www.youtube.com/watch?v=${body.id}` : "");
+        const url = previewUrl || youtubeUrl || sourceUrl;
+        if (!url && !body.title) return jsonResponse(res, 400, { error: "Missing song metadata" });
+
+        let info;
+        let warning = "";
+        const previewMode = Boolean(previewUrl) || (sourceProvider && sourceProvider !== "youtube") || (sourceUrl && !isLikelyYoutubeRequest(sourceUrl));
+        if (previewMode) {
+          warning = "Preview source selected";
+          info = metadataOnlyInfo(body, sourceUrl || previewUrl || url, warning);
+        } else {
+          try {
+            info = getInfo(youtubeUrl || url);
+          } catch (error) {
+            warning = error.message;
+            if (isYoutubeBlockedError(error) || isYtdlpTimeoutError(error)) markYoutubeBlocked(error);
+            console.warn(`YouTube metadata unavailable; continuing with search metadata: ${error.message}`);
+            info = metadataOnlyInfo(body, youtubeUrl || url, error.message);
+          }
+        }
+
+        if (!previewUrl && Number(info.duration || 0) && Number(info.duration || 0) <= MIN_SONG_SOURCE_SECONDS) {
+          return jsonResponse(res, 400, { error: `Song duration must be longer than ${MIN_SONG_SOURCE_SECONDS} seconds.` });
+        }
+
+        const { artist, title } = parseArtistTitle(info);
+        const videoId = info.id || body.id || safeId(url || `${artist}-${title}`);
+        const genreResult = await inferGenresWithMusicBrainz(info, { artist, title });
+        let sourceFile = "";
+        let sourceDuration = Number(info.duration || body.duration || 0) || 0;
+        try {
+          const audioUrl = previewUrl || info.webpage_url || sourceUrl || youtubeUrl || `ytsearch1:${artist} ${title} official audio`;
+          sourceFile = await downloadAudio(audioUrl, `selected-${videoId}`, {
+            artist,
+            title,
+            query: `${artist} ${title}`,
+            previewUrl,
+            sourceProvider: sourceProvider || (previewUrl ? "preview" : ""),
+            sourceUrl: sourceUrl || youtubeUrl || url
+          });
+          sourceDuration = getDuration(sourceFile) || Number(info.duration || 0) || sourceDuration;
+        } catch (error) {
+          warning = warning ? `${warning}\n${error.message}` : error.message;
+          console.warn(`Theme audio unavailable; continuing without theme audio: ${error.message}`);
+        }
+
+        if (sourceFile) {
+          const minSourceSeconds = previewUrl ? Number(process.env.MIN_PREVIEW_SOURCE_SECONDS || 20) || 20 : minSourceSecondsFor(sourceFile);
+          if (sourceDuration < minSourceSeconds) {
+            return jsonResponse(res, 400, { error: `Song duration must be longer than ${minSourceSeconds} seconds.` });
+          }
+        }
+
+        const sessionId = `${safeId(videoId)}-${Date.now().toString(36)}`;
+        const sessionDir = join(runtimeDir, sessionId);
+        mkdirSync(sessionDir, { recursive: true });
+        const song = createSessionSong({
+          sessionId,
+          info,
+          body,
+          url: sourceUrl || youtubeUrl || url,
+          artist,
+          title,
+          videoId,
+          genreResult,
+          sourceFile,
+          sourceDuration,
+          warning,
+          sourceProvider: sourceProvider || (previewUrl ? "preview" : "")
+        });
+        if (warning && !sourceFile) {
+          song.warning = warning;
+          song.source = `${genreResult.source} + metadata-only`;
+          song.summary = `Matched ${artist} - ${title} from search metadata. YouTube audio was not available on this machine, so the radio workspace opens first and sampling will use preview/fallback sources.`;
+        }
+
+        const session = { id: sessionId, song, info, genreResult, warning };
+        writeFileSync(sessionPath(sessionId), JSON.stringify(session, null, 2));
+        return jsonResponse(res, 200, { song: { ...song, sourceFile: undefined, sessionId }, sessionId, warning });
+      }
       const url = body.url || (body.id ? `https://www.youtube.com/watch?v=${body.id}` : "");
       if (!url) return jsonResponse(res, 400, { error: "Missing YouTube URL" });
       let info;
@@ -4046,6 +4478,7 @@ async function handleApi(req, res, pathname, searchParams) {
         info = getInfo(url);
       } catch (error) {
         warning = error.message;
+        if (isYoutubeBlockedError(error)) markYoutubeBlocked(error);
         console.warn(`YouTube metadata unavailable; continuing with search metadata: ${error.message}`);
         info = metadataOnlyInfo(body, url, error.message);
       }
@@ -4058,16 +4491,18 @@ async function handleApi(req, res, pathname, searchParams) {
       const genres = genreResult.genres;
       let sourceFile = "";
       let sourceDuration = Number(info.duration || body.duration || 0) || 0;
-      if (!warning) {
-        try {
-          sourceFile = downloadAudio(info.webpage_url || url, `selected-${videoId}`);
-          sourceDuration = Number(info.duration || 0) || getDuration(sourceFile);
-        } catch (error) {
-          warning = error.message;
-          console.warn(`YouTube audio download unavailable; continuing without theme audio: ${error.message}`);
-        }
+      try {
+        sourceFile = await downloadAudio(info.webpage_url || url, `selected-${videoId}`, {
+          artist,
+          title,
+          query: `${artist} ${title}`
+        });
+        sourceDuration = getDuration(sourceFile) || Number(info.duration || 0) || sourceDuration;
+      } catch (error) {
+        warning = warning ? `${warning}\n${error.message}` : error.message;
+        console.warn(`Theme audio unavailable; continuing without theme audio: ${error.message}`);
       }
-      if (sourceFile && sourceDuration <= MIN_SONG_SOURCE_SECONDS) {
+      if (sourceFile && sourceDuration < minSourceSecondsFor(sourceFile)) {
         return jsonResponse(res, 400, { error: `歌曲时长需要长于 ${MIN_SONG_SOURCE_SECONDS} 秒。` });
       }
       const sessionId = `${safeId(videoId)}-${Date.now().toString(36)}`;
@@ -4135,7 +4570,7 @@ async function handleApi(req, res, pathname, searchParams) {
       const sessionDir = join(runtimeDir, session.id);
       const workDir = join(sessionDir, `work-${currentTtsEngine(body.engine)}`);
       mkdirSync(workDir, { recursive: true });
-      const pool = buildSamplePool(session, workDir, {
+      const pool = await buildSamplePool(session, workDir, {
         forceFresh: body.forceFresh === true,
         target: body.target,
         maxCandidates: body.maxCandidates

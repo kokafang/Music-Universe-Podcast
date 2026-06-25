@@ -132,30 +132,37 @@
         position: absolute;
         padding: 2px 6px;
         border-radius: 999px;
-        background: rgba(4, 8, 18, 0.32);
-        color: rgba(255, 255, 255, 0.82);
+        background: rgba(8, 12, 20, 0.34);
+        border: 1px solid rgba(196, 204, 214, 0.2);
+        color: rgba(226, 231, 238, 0.68);
         font-size: 10px;
         line-height: 1.25;
         white-space: nowrap;
-        text-shadow: 0 0 12px rgba(0, 0, 0, 0.7);
+        text-shadow: 0 0 12px rgba(0, 0, 0, 0.86), 0 0 18px rgba(226, 231, 238, 0.18);
         transform: translate(-50%, -50%);
         transition: opacity 120ms linear;
       }
 
       .sphere-label.focus {
-        background: rgba(245, 219, 145, 0.14);
+        background: rgba(245, 219, 145, 0.18);
+        border-color: rgba(245, 219, 145, 0.36);
         color: #f5db91;
         font-size: 15px;
+        text-shadow: 0 0 16px rgba(245, 219, 145, 0.78), 0 0 28px rgba(245, 219, 145, 0.34);
       }
 
       .sphere-label.lineage {
-        background: rgba(186, 245, 143, 0.12);
+        background: rgba(186, 245, 143, 0.14);
+        border-color: rgba(186, 245, 143, 0.3);
         color: #baf58f;
+        text-shadow: 0 0 14px rgba(186, 245, 143, 0.62);
       }
 
       .sphere-label.spatial {
-        background: rgba(168, 188, 255, 0.1);
+        background: rgba(168, 188, 255, 0.12);
+        border-color: rgba(168, 188, 255, 0.28);
         color: #a8bcff;
+        text-shadow: 0 0 14px rgba(168, 188, 255, 0.6);
       }
 
       .cinematic-overlay,
@@ -1579,8 +1586,15 @@
       function sphereLabelSet() {
         const items = [];
         const byName = new Map(sphereState.genres.map((genre) => [genre.name.toLowerCase(), genre]));
-        const zoomLevel = THREE.MathUtils.clamp((30 - sphereState.targetCameraDistance) / 14, 0, 1);
-        const rankedCount = zoomLevel > 0.7 ? 190 : zoomLevel > 0.35 ? 130 : zoomLevel > 0.12 ? 76 : 0;
+        const zoomLevel = THREE.MathUtils.clamp((34 - sphereState.targetCameraDistance) / 19, 0, 1);
+        const rankedCount =
+          zoomLevel > 0.985 ? sphereState.genres.length :
+          zoomLevel > 0.94 ? 2600 :
+          zoomLevel > 0.88 ? 1200 :
+          zoomLevel > 0.78 ? 520 :
+          zoomLevel > 0.66 ? 180 :
+          zoomLevel > 0.56 ? 72 :
+          0;
         for (const name of importantSphereNames) {
           const genre = byName.get(name);
           if (genre) items.push({ genre, kind: "default" });
@@ -1592,30 +1606,36 @@
             .slice(0, rankedCount)
             .forEach((genre) => items.push({ genre, kind: "default" }));
         }
-        if (sphereState.targetCameraDistance < 23) {
+        if (sphereState.targetCameraDistance < 20.5) {
           sphereState.genres
             .map((genre) => {
               const normal = new THREE.Vector3(genre.sphere.x, genre.sphere.y, genre.sphere.z).normalize();
               return { genre, dot: normal.dot(sphereState.focusNormal), score: normal.dot(sphereState.focusNormal) + genre.normalized.importance * 0.18 };
             })
-            .filter((item) => item.dot > 0.93)
+            .filter((item) => item.dot > (sphereState.targetCameraDistance < 16 ? 0.72 : 0.94))
             .sort((a, b) => b.score - a.score)
-            .slice(0, sphereState.targetCameraDistance < 18 ? 36 : 20)
-            .forEach((item) => items.push({ genre: item.genre, kind: "spatial" }));
+            .slice(0, sphereState.targetCameraDistance < 16 ? 420 : sphereState.targetCameraDistance < 18 ? 160 : 36)
+            .forEach((item) => items.push({ genre: item.genre, kind: "default" }));
         }
         if (sphereState.selected) {
           items.push({ genre: sphereState.selected, kind: "focus" });
-          sphereState.selected.relations.spatial.slice(0, 6).forEach((id) => {
+          sphereState.selected.relations.spatial.slice(0, 12).forEach((id) => {
             const genre = sphereState.byId.get(id);
             if (genre) items.push({ genre, kind: "spatial" });
           });
-          sphereState.selected.relations.lineage.slice(0, 6).forEach((id) => {
+          sphereState.selected.relations.lineage.slice(0, 10).forEach((id) => {
             const genre = sphereState.byId.get(id);
             if (genre) items.push({ genre, kind: "lineage" });
           });
         }
         const unique = new Map();
-        items.forEach((item) => unique.set(`${item.genre.id}-${item.kind}`, item));
+        const priority = { focus: 3, lineage: 2, spatial: 2, default: 1 };
+        items.forEach((item) => {
+          const current = unique.get(item.genre.id);
+          if (!current || priority[item.kind] > priority[current.kind]) {
+            unique.set(item.genre.id, item);
+          }
+        });
         return [...unique.values()];
       }
 
@@ -1695,7 +1715,18 @@
 
       function resolveSphereGenre(idOrName) {
         const key = String(idOrName || "").toLowerCase();
-        return sphereState.bySlug.get(key) || sphereState.genres.find((genre) => genre.name.toLowerCase() === key || genre.slug === key);
+        const compactKey = key.replace(/[-_\s]+/g, "");
+        const spacedKey = key.replace(/[-_]+/g, " ");
+        const numericId = Number(idOrName);
+        if (Number.isFinite(numericId) && sphereState.byId.has(numericId)) return sphereState.byId.get(numericId);
+        return sphereState.bySlug.get(key) ||
+          sphereState.bySlug.get(compactKey) ||
+          sphereState.bySlug.get(spacedKey) ||
+          sphereState.genres.find((genre) => {
+            const name = genre.name.toLowerCase();
+            const slug = String(genre.slug || "").toLowerCase();
+            return name === key || name === spacedKey || slug === key || slug === compactKey;
+          });
       }
 
       window.musicSphereViz = {
@@ -1714,6 +1745,9 @@
           updateSphereAttributes();
           updateSphereRelationFlows();
           updateSphereLabels();
+        },
+        resize() {
+          resizeSphereScene();
         },
         reset() {
           sphereState.selected = null;
@@ -1743,6 +1777,8 @@
       window.addEventListener("musicSphere:reset", () => {
         window.musicSphereViz.reset();
       });
+      const sphereResizeObserver = new ResizeObserver(() => resizeSphereScene());
+      sphereResizeObserver.observe(sphereStage);
 
       async function initSphereScene() {
         sphereState.renderer = new THREE.WebGLRenderer({ canvas: sphereCanvas, antialias: true, alpha: true });
@@ -1762,6 +1798,7 @@
 
       window.addEventListener("resize", resizeSphereScene);
       initSphereScene().catch((error) => console.error("Sphere scene failed", error));
+
     </script>
 
     <script>
@@ -3073,7 +3110,7 @@
 
       async function performSearch(query) {
         const normalized = query.trim().toLowerCase();
-        candidateList.innerHTML = `<div class="candidate"><div><strong>Searching YouTube</strong><span>${query}</span></div></div>`;
+        candidateList.innerHTML = `<div class="candidate"><div><strong>Searching music sources</strong><span>${query}</span></div></div>`;
         candidateList.classList.add("show");
 
         try {
@@ -3091,7 +3128,7 @@
           const data = await response.json();
           const remoteResults = data.results.map((item) => ({ ...item, isRemote: true }));
           renderCandidates(remoteResults);
-          if (remoteResults[0]) bindSong(remoteResults[0]);
+          if (remoteResults.length) showToast("Choose a result to confirm.");
         } catch (error) {
           const results = searchCatalog
             .map((item) => {
@@ -3147,12 +3184,16 @@
               body: JSON.stringify({
                 id: song.id,
                 url: song.url,
+                sourceUrl: song.sourceUrl,
+                sourceProvider: song.sourceProvider,
+                previewUrl: song.previewUrl,
                 title: song.title,
                 artist: song.artist || song.uploader,
                 uploader: song.uploader,
                 duration: song.duration,
                 durationLabel: song.durationLabel,
-                thumbnail: song.thumbnail
+                thumbnail: song.thumbnail,
+                year: song.year
               })
             });
             if (!response.ok) {
@@ -3175,7 +3216,14 @@
 
         selectedSong = song;
         app.classList.add("sidebar-open");
-        window.setTimeout(resizeCanvas, 180);
+        const resizeVisibleMaps = () => {
+          resizeCanvas();
+          window.musicSphereViz?.resize();
+        };
+        requestAnimationFrame(resizeVisibleMaps);
+        window.setTimeout(resizeVisibleMaps, 120);
+        window.setTimeout(resizeVisibleMaps, 320);
+        window.setTimeout(resizeVisibleMaps, 700);
         runtimePackManifest = null;
         highlightedNodes = new Set(song.genres);
         pulseNodes = new Set();
@@ -4002,6 +4050,7 @@
           const delta = event.deltaY || 0;
           const zoomFactor = Math.exp(-delta * 0.0014);
           targetZoom = Math.max(minViewZoom, Math.min(maxViewZoom, targetZoom * zoomFactor));
+          window.musicSphereViz?.zoom(Math.sign(delta) * 1.8);
         },
         { passive: false }
       );
